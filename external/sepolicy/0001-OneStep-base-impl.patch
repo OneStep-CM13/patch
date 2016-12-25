@@ -1,0 +1,33 @@
+From f13c7ad4a3c6bab838c3bebf57ddfe125b58393c Mon Sep 17 00:00:00 2001
+From: zhangji <zhangji@smartisan.com>
+Date: Tue, 13 Dec 2016 21:40:04 +0800
+Subject: [PATCH] OneStep: base impl
+
+Signed-off-by: zhangji <zhangji@smartisan.com>
+---
+ service.te       | 1 +
+ service_contexts | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/service.te b/service.te
+index 56478d0..0bd6b72 100644
+--- a/service.te
++++ b/service.te
+@@ -102,3 +102,4 @@ type wifip2p_service, app_api_service, system_server_service, service_manager_ty
+ type wifiscanner_service, system_api_service, system_server_service, service_manager_type;
+ type wifi_service, app_api_service, system_server_service, service_manager_type;
+ type window_service, system_api_service, system_server_service, service_manager_type;
++type onestep_service, system_api_service, system_server_service, service_manager_type;
+diff --git a/service_contexts b/service_contexts
+index 85dcd3d..b81a6d2 100644
+--- a/service_contexts
++++ b/service_contexts
+@@ -128,4 +128,5 @@ wifip2p                                   u:object_r:wifip2p_service:s0
+ wifiscanner                               u:object_r:wifiscanner_service:s0
+ wifi                                      u:object_r:wifi_service:s0
+ window                                    u:object_r:window_service:s0
++onestep                                   u:object_r:onestep_service:s0
+ *                                         u:object_r:default_android_service:s0
+-- 
+2.6.6
+

@@ -1,0 +1,26 @@
+From b08232f753833a4803291aa5651e71e29b84a535 Mon Sep 17 00:00:00 2001
+From: zhangji <zhangji@smartisan.com>
+Date: Tue, 13 Dec 2016 19:04:50 +0800
+Subject: [PATCH 2/2] Add OneStep UI Apps into build.
+
+Signed-off-by: zhangji <zhangji@smartisan.com>
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ target/product/core.mk | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/target/product/core.mk b/target/product/core.mk
+index 603d5f5..778be97 100644
+--- a/target/product/core.mk
++++ b/target/product/core.mk
+@@ -51,6 +51,7 @@ PRODUCT_PACKAGES += \
+     TeleService \
+     VpnDialogs \
+     MmsService \
++    Sidebar \
+     framework-smartisanos-res \
+     smartisanos
+ 
+-- 
+2.6.6
+

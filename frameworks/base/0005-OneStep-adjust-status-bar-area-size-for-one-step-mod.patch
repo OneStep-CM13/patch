@@ -1,0 +1,121 @@
+From dc07da2d896965c89a82ed8685967c34ced5f4bc Mon Sep 17 00:00:00 2001
+From: zhangji <zhangji@smartisan.com>
+Date: Fri, 16 Dec 2016 22:44:54 +0800
+Subject: [PATCH 5/6] OneStep: adjust status bar area size for one step mode
+
+Signed-off-by: zhangji <zhangji@smartisan.com>
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ core/res/res/values/smartisanos_dimens.xml                |  5 ++++-
+ core/res/res/values/smartisanos_symbols.xml               |  6 ++++++
+ .../com/android/systemui/statusbar/phone/PanelBar.java    |  8 ++++++++
+ .../server/policy/SystemGesturesPointerEventListener.java | 15 +++++++++++----
+ 4 files changed, 29 insertions(+), 5 deletions(-)
+
+diff --git a/core/res/res/values/smartisanos_dimens.xml b/core/res/res/values/smartisanos_dimens.xml
+index 8219f6e..7f3fbfb 100644
+--- a/core/res/res/values/smartisanos_dimens.xml
++++ b/core/res/res/values/smartisanos_dimens.xml
+@@ -7,5 +7,8 @@
+     <dimen name="drag_scale_margin">12dp</dimen>
+     <dimen name="sidebar_width">48dp</dimen>
+     <dimen name="drag_image_size">50dp</dimen>
+-
++    <dimen name="sidebar_start_threshold_x_a">27dp</dimen>
++    <dimen name="sidebar_start_threshold_y_a">24dp</dimen>
++    <dimen name="sidebar_start_threshold_x_b">17dp</dimen>
++    <dimen name="sidebar_start_threshold_y_b">50dp</dimen>
+ </resources>
+diff --git a/core/res/res/values/smartisanos_symbols.xml b/core/res/res/values/smartisanos_symbols.xml
+index e549a7f..27dbcda 100644
+--- a/core/res/res/values/smartisanos_symbols.xml
++++ b/core/res/res/values/smartisanos_symbols.xml
+@@ -12,6 +12,12 @@
+   <java-symbol type="dimen" name="drag_touch_point_offset" />
+   <java-symbol type="dimen" name="drag_normal_arrow_point_offset" />
+   <java-symbol type="dimen" name="drag_scale_margin" />
++
++  <java-symbol type="dimen" name="sidebar_start_threshold_x_a" />
++  <java-symbol type="dimen" name="sidebar_start_threshold_y_a" />
++  <java-symbol type="dimen" name="sidebar_start_threshold_x_b" />
++  <java-symbol type="dimen" name="sidebar_start_threshold_y_b" />
++
+   <!-- TextView/Editor Symbol -->
+ 
+   <java-symbol type="drawable" name="sidebar_background" />
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/PanelBar.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/PanelBar.java
+index e1a400d..64a2bf9 100644
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/PanelBar.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/PanelBar.java
+@@ -46,6 +46,7 @@ public abstract class PanelBar extends FrameLayout {
+     private boolean mTracking;
+ 
+     float mPanelExpandedFractionSum;
++    private int mOneStepXStartThreshold;
+ 
+     public void go(int state) {
+         if (DEBUG) LOG("go state: %d -> %d", mState, state);
+@@ -54,6 +55,8 @@ public abstract class PanelBar extends FrameLayout {
+ 
+     public PanelBar(Context context, AttributeSet attrs) {
+         super(context, attrs);
++        mOneStepXStartThreshold = context.getResources()
++                .getDimensionPixelSize(com.android.internal.R.dimen.sidebar_start_threshold_x_a);
+     }
+ 
+     @Override
+@@ -119,6 +122,11 @@ public abstract class PanelBar extends FrameLayout {
+ 
+         // figure out which panel needs to be talked to here
+         if (event.getAction() == MotionEvent.ACTION_DOWN) {
++            //SmartisanOs ext. ignore for onestep.
++            if (event.getRawX() <= mOneStepXStartThreshold || event.getRawX() >=getMeasuredWidth() - mOneStepXStartThreshold) {
++                mTouchingPanel = null;
++                return true;
++            }
+             final PanelView panel = selectPanelForTouch(event);
+             if (panel == null) {
+                 // panel is not there, so we'll eat the gesture
+diff --git a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+index 1607b0c..a5ccd23 100644
+--- a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
++++ b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+@@ -31,8 +31,8 @@ import android.widget.OverScroller;
+  * @hide
+  */
+ public class SystemGesturesPointerEventListener implements PointerEventListener {
+-    private static final String TAG = "SystemGestures";
+-    private static final boolean DEBUG = false;
++    private static final String TAG = "533";
++    private static final boolean DEBUG = true;
+     private static final long SWIPE_TIMEOUT_MS = 500;
+     private static final int MAX_TRACKED_POINTERS = 32;  // max per input system
+     private static final int UNTRACKED_POINTER = -1;
+@@ -199,15 +199,22 @@ public class SystemGesturesPointerEventListener implements PointerEventListener
+                 + " moved (" + fromX + "->" + x + "," + fromY + "->" + y + ") in " + elapsed);
+         int topFromDy = mSwipeStartThreshold;
+         int topDy = 0;
++        int topFromDx = 80;
+         if (mInSidebarMode) {
+             topFromDy += mThumbOffsetScaleVertiS;
+             topDy = mThumbOffsetScaleVertiS;
++            topFromDx = 0;
+         }
+         if (fromY <= topFromDy
+                 && y > topDy
+                 && y - fromY > mSwipeDistanceThreshold
+-                && elapsed < SWIPE_TIMEOUT_MS) {
+-            return SWIPE_FROM_TOP;
++                && elapsed < SWIPE_TIMEOUT_MS ) {
++            if (fromX >= topFromDx
++                    && fromX <= screenWidth - topFromDx) {
++                return SWIPE_FROM_TOP;
++            } else {
++                return SWIPE_NONE;
++            }
+         }
+         if (fromY >= screenHeight - mSwipeStartThreshold
+                 && y < fromY - mSwipeDistanceThreshold
+-- 
+2.6.6
+

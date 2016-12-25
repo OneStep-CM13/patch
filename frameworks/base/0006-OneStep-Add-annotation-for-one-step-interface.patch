@@ -1,0 +1,625 @@
+From ca3aca92e37e5e5534df5214cefbf0f00d033a19 Mon Sep 17 00:00:00 2001
+From: zhangji <zhangji@smartisan.com>
+Date: Tue, 20 Dec 2016 13:14:55 +0800
+Subject: [PATCH 6/6] OneStep:Add annotation for one step interface.
+
+Signed-off-by: zhangji <zhangji@smartisan.com>
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ .../java/android/view/onestep/IOneStepManager.aidl |  55 +++++--
+ core/java/android/view/onestep/MimeUtils.java      |  14 ++
+ .../android/view/onestep/OneStepDragUtils.java     | 180 +++++++++++++++++++--
+ core/java/android/view/onestep/OneStepManager.java |  92 +++++++++--
+ core/res/AndroidManifest.xml                       |   6 +
+ .../server/onestep/OneStepManagerService.java      |   7 +
+ .../policy/SystemGesturesPointerEventListener.java |  15 +-
+ 7 files changed, 316 insertions(+), 53 deletions(-)
+
+diff --git a/core/java/android/view/onestep/IOneStepManager.aidl b/core/java/android/view/onestep/IOneStepManager.aidl
+index 1160399..a8da883 100644
+--- a/core/java/android/view/onestep/IOneStepManager.aidl
++++ b/core/java/android/view/onestep/IOneStepManager.aidl
+@@ -38,30 +38,59 @@ interface IOneStepManager {
+      */
+     void bindOneStepUI(IOneStep oneStep);
+ 
+-    // Need the OneStep_SERVICE permission
++    /**
++     * Reset the window to normal
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
+     void resetWindow();
+ 
+-    // NOT need the OneStep_SERVICE permission
++    /**
++     * Whether in one step mode or not.
++     */
+     boolean isInOneStepMode();
+ 
+-    // NOT need the OneStep_SERVICE permission
++    /**
++     * Get One Step mode state.
++     */
+     int getOneStepModeState();
+ 
+-    // NOT need the OneStep_SERVICE permission
++    /**
++     * Whether the focus one one step window or not.
++     */
+     boolean isFocusedOnOneStep();
+ 
+-    // Need the OneStep_SERVICE permission
+-    void requestEnterLastMode();
++    /**
++     * Request enter last one step mode.
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
++      void requestEnterLastMode();
+ 
+-    void resumeOneStep();
++    /**
++     * Request exit one step mode.
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
++      void requestExitOneStepMode();
+ 
+-    void updateOngoing(in ComponentName name, int token, int pendingNumbers, CharSequence title, int pid);
++    /**
++     * Request enter one step mode.
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
++     void requestEnterOneStepMode(int mode);
+ 
+-    // Need the OneStep_SERVICE permission
+-    void requestExitOneStepMode();
++    /**
++     * Set one step UI enabled or not.
++     * Can only be called with the ONE_STEP permission
++     */
++    void setEnabled(boolean enabled);
+ 
+-    // Need the OneStep_SERVICE permission
+-    void requestEnterOneStepMode(int mode);
++   /**
++     * Resume one step UI 
++     * Can only be called with the ONE_STEP permission
++     */
++    void resumeOneStep();
+ 
+-    void setEnabled(boolean enabled);
++   /**
++     * Drag text, image to one. For examle: smartisan notes.
++     */
++    void updateOngoing(in ComponentName name, int token, int pendingNumbers, CharSequence title, int pid);
+ }
+diff --git a/core/java/android/view/onestep/MimeUtils.java b/core/java/android/view/onestep/MimeUtils.java
+index b181cd8..dc39427 100644
+--- a/core/java/android/view/onestep/MimeUtils.java
++++ b/core/java/android/view/onestep/MimeUtils.java
+@@ -77,6 +77,13 @@ final class MimeUtils {
+     private MimeUtils() {
+     }
+ 
++    /**
++     * Getthe file display Icon according to mimetype and the file extension.
++     * 
++     * @param mimeType
++     * @param extension
++     * @return the icon res id.
++     */
+     public static int getFileIconResId(String mimeType, String extension) {
+         if (!TextUtils.isEmpty(extension)) {
+             if (extensionToIconMap.containsKey(extension)) {
+@@ -99,6 +106,13 @@ final class MimeUtils {
+         return R.drawable.file_icon_default;
+     }
+ 
++    /**
++     * Get the file display Icon according to mimetype.
++     *
++     * @param mimeType
++     * @param file
++     * @return the icon res id.
++     */
+     public static int getFileIconResId(String mimeType, File file) {
+         String suffix = null;
+         String name = file.getName();
+diff --git a/core/java/android/view/onestep/OneStepDragUtils.java b/core/java/android/view/onestep/OneStepDragUtils.java
+index e231c51..3cf8451 100644
+--- a/core/java/android/view/onestep/OneStepDragUtils.java
++++ b/core/java/android/view/onestep/OneStepDragUtils.java
+@@ -38,27 +38,34 @@ import android.view.View;
+ import com.smartisanos.internal.R;
+ 
+ import java.io.File;
+-/** {@hide} */
+-public class OneStepDragUtils {
+-
+-    private static final class DragSource {
+-        public static final String APP = "0";
+-        public static final String IMAGE = "1";
+-        public static final String FILE = "2";
+-        public static final String CLIPBOARD = "3";
+-    }
+ 
+-    private static final class DragContent {
+-        public static final String IMAGE = "0";
+-        public static final String FILE = "1";
+-        public static final String TEXT = "2";
+-        public static final String LINK = "3";
+-    }
++/**
++ * A class containing utility methods related to one step mode. 
++ * Let  the apps can drag something when in one step mode. 
++ *  
++ *  {@hide} 
++ *  */
++public class OneStepDragUtils {
+ 
++    /**
++     * Long Press and Drag to share {@link java.lang.CharSequence} content text.
++     *
++     * @param view The View object which you long press and drag.
++     * @param text The content which you want to share. Can be {@link java.lang.String}
++     * {@link android.text.SpannableString} or any other implementation class object.
++     */
+   public static void dragText(View view, Context context, CharSequence text) {
+         dragText(view, context, text, null);
+     }
+ 
++  /**
++   * Long Press and Drag to share {@link java.lang.CharSequence} content text.
++   *
++   * @param view The View object which you long press and drag.
++   * @param text The content which you want to share. Can be {@link java.lang.String}
++   * {@link android.text.SpannableString} or any other implementation class object.
++   * @param myLocalState The Object want to pass to drag event.{@link android.view.DragEvent#getLocalState()}
++   */
+     public static void dragText(View view, Context context, CharSequence text, Object myLocalState) {
+         ClipData cd = ClipData.newPlainText(null, text);
+         int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_normal_arrow_point_offset);
+@@ -66,10 +73,38 @@ public class OneStepDragUtils {
+         view.startDrag(cd, new TextDragShadowBuilder(context, text.toString()), myLocalState, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
+     }
+ 
++    /**
++     * Long Press and Drag to share {@link java.lang.CharSequence} content. You can set
++     * the style of popup bubble,
++     *
++     * @param view The View object which you long press and drag.
++     * @param text The content which you want to share. Can be {@link java.lang.String}
++     * {@link android.text.SpannableString} or any other implementation class object.
++     * @param content The bubble content bitmap display. At the Middle of Z-order.
++     * Suggest Size:66dp x 45dp
++     * @param avatar The bubble avatar bitmap on the left(has a padding). At the Top of Z-order
++     * Suggest Size: 26dp x 26dp
++     *
++     */
+     public static void dragText(View view, Context context, CharSequence text, Bitmap content, Bitmap avatar) {
+         dragText(view, context, text, null, content, avatar);
+     }
+ 
++    /**
++     * Long Press and Drag to share {@link java.lang.CharSequence} content. You can set
++     * the style of popup bubble,
++     *
++     * @param view The View object which you long press and drag.
++     * @param text The content which you want to share. Can be {@link java.lang.String}
++     * {@link android.text.SpannableString} or any other implementation class object.
++     * @param background The bubble background bitmap. At the Bottom of Z-order.
++     * Suggest Size: 96dp x 87dp
++     * @param content The bubble content bitmap display. At the Middle of Z-order.
++     * Suggest Size:66dp x 45dp
++     * @param avatar The bubble avatar bitmap on the left(has a padding). At the Top of Z-order
++     * Suggest Size: 26dp x 26dp
++     *
++     */
+     public static void dragText(View view, Context context, CharSequence text, Bitmap background, Bitmap content, Bitmap avatar) {
+         if (content == null && avatar == null) {
+             dragText(view, context, text);
+@@ -81,6 +116,13 @@ public class OneStepDragUtils {
+         view.startDrag(cd, new CardDragShadowBuilder(context, background, content, avatar), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
+     }
+ 
++    /**
++     * Long Press and Drag to share link. This Method will display a link icon when drag.
++     *
++     * @param view The View object which you long press and drag.
++     * @param link The content which you want to share. Can be {@link java.lang.String}
++     * {@link android.text.SpannableString} or any other implementation class object.
++     */
+     public static void dragLink(View view, Context context, CharSequence link) {
+         ClipData cd = ClipData.newPlainText(null, link);
+         int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_normal_arrow_point_offset);
+@@ -88,10 +130,34 @@ public class OneStepDragUtils {
+         view.startDrag(cd, new LinkDragShadowBuilder(context, link.toString()), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
+     }
+ 
++    /**
++     * Long Press and Drag to share link. This Method will display a link icon when drag.
++     *
++     * @param view The View object which you long press and drag.
++     * @param link The content which you want to share. Can be {@link java.lang.String}
++     * {@link android.text.SpannableString} or any other implementation class object.
++     * @param content The bubble content bitmap display. At the Middle of Z-order.
++     * Suggest Size:66dp x 45dp
++     * @param avatar The bubble avatar bitmap on the left(has a padding). At the Top of Z-order
++     * Suggest Size: 26dp x 26dp
++     */
+     public static void dragLink(View view, Context context, CharSequence link, Bitmap content, Bitmap avatar) {
+         dragLink(view, context, link, null, content, avatar);
+     }
+ 
++    /**
++     * Long Press and Drag to share link. This Method will display a link icon when drag.
++     *
++     * @param view The View object which you long press and drag.
++     * @param link The content which you want to share. Can be {@link java.lang.String}
++     * {@link android.text.SpannableString} or any other implementation class object.
++     * @param background The bubble background bitmap. At the Bottom of Z-order.
++     * Suggest Size: 96dp x 87dp
++     * @param content The bubble content bitmap display. At the Middle of Z-order.
++     * Suggest Size:66dp x 45dp
++     * @param avatar The bubble avatar bitmap on the left(has a padding). At the Top of Z-order
++     * Suggest Size: 26dp x 26dp
++     */
+     public static void dragLink(View view, Context context, CharSequence link, Bitmap background, Bitmap content, Bitmap avatar) {
+         if (content == null && avatar == null) {
+             dragLink(view, context, link);
+@@ -103,14 +169,49 @@ public class OneStepDragUtils {
+         view.startDrag(cd, new CardDragShadowBuilder(context, background, content, avatar), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
+     }
+ 
++    /**
++     * Long Press and Drag to share a File. We will add file icon for the drag bubble
++     * by the file extension and mimetype.
++     *
++     * @param view The View object which you long press and drag.
++     * @param file The File you want to share,
++     * @param mimeType The mimeType of your file,
++     */
+     public static void dragFile(View view, Context context, File file, String mimeType) {
+         dragFile(view, context, file, mimeType, file.getName());
+     }
+ 
++    /**
++     * Long Press and Drag to share a File. We will add file icon for the drag bubble
++     * by the file extension and mimetype.
++     *
++     * @param view The View object which you long press and drag.
++     * @param file The File you want to share,
++     * @param mimeType The mimeType of your file,
++     * @param content The bubble content bitmap display. At the Middle of Z-order.
++     * Suggest Size:66dp x 45dp
++     * @param avatar The bubble avatar bitmap on the left(has a padding). At the Top of Z-order
++     * Suggest Size: 26dp x 26dp
++     */
+     public static void dragFile(View view, Context context, File file, String mimeType, Bitmap content, Bitmap avatar) {
+         dragFile(view, context, file, mimeType, null, content, avatar);
+     }
+ 
++    /**
++     * Long Press and Drag to share a File. We will add file icon for the drag bubble
++     * by the file extension and mimetype.
++     * For example: Smartisan FileManager App long press and share files.
++     *
++     * @param view The View object which you long press and drag.
++     * @param file The File you want to share,
++     * @param mimeType The mimeType of your file,
++     * @param background The bubble background bitmap. At the Bottom of Z-order.
++     * Suggest Size: 96dp x 87dp
++     * @param content The bubble content bitmap display. At the Middle of Z-order.
++     * Suggest Size:66dp x 45dp
++     * @param avatar The bubble avatar bitmap on the left(has a padding). At the Top of Z-order
++     * Suggest Size: 26dp x 26dp
++     */
+     public static void dragFile(View view, Context context, File file, String mimeType, Bitmap background, Bitmap content, Bitmap avatar) {
+         if("text/plain".equals(mimeType)){
+             mimeType = "application/*";
+@@ -125,6 +226,16 @@ public class OneStepDragUtils {
+         view.startDrag(cd, new CardDragShadowBuilder(context, background, content, avatar), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
+     }
+ 
++    /**
++     * Long Press and Drag to share a File. We will add file icon for the drag bubble
++     * by the file extension and mimetype.
++     * For example: Smartisan FileManager App long press and share files.
++     *
++     * @param view The View object which you long press and drag.
++     * @param file The File you want to share,
++     * @param mimeType The mimeType of your file,
++     * @param displayname The drag bubble display text.
++     */
+     public static void dragFile(View view, Context context, File file, String mimeType, String displayname){
+         if("text/plain".equals(mimeType)){
+             mimeType = "application/*";
+@@ -144,10 +255,25 @@ public class OneStepDragUtils {
+         view.startDrag(cd, new FileDragShadowBuilder(context, displayname, fileIcon), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
+     }
+ 
++    /**
++     * Long Press and Drag to share a image.
++     *
++     * @param view The View object which you long press and drag.
++     * @param file The image file object.
++     * @param mimeType The mimeType of image.
++     */
+     public static void dragImage(View view, Context context, File file, String mimeType) {
+         dragImage(view, context, null, file, mimeType);
+     }
+ 
++    /**
++     * Long Press and Drag to share a image. you can set the bitmap when drag.
++     *
++     * @param view The View object which you long press and drag.
++     * @param content The drag bubble display bitmap.
++     * @param file The image file object.
++     * @param mimeType The mimeType of image.
++     */
+     public static void dragImage(View view, Context context, Bitmap content, File file, String mimeType) {
+         ClipData cd = new ClipData(null, new String[]{mimeType}, new ClipData.Item(Uri.fromFile(file)));
+         int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_image_arrow_point_offset);
+@@ -161,14 +287,38 @@ public class OneStepDragUtils {
+         view.startDrag(cd, new ImageDragShadowBuilder(context, content), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
+     }
+ 
++    /**
++     * Long Press and Drag to share multi images.
++     *
++     * @param view The View object which you long press and drag.
++     * @param files The array of file you want to share.
++     * @param mimeTypes The array of appropriate mimetype.
++     */
+     public static void dragMultipleImage(View view, Context context, File[] files, String[] mimeTypes) {
+         dragMultipleImage(view, context, 0, files, mimeTypes);
+     }
+ 
++    /**
++     * Long Press and Drag to share multi images.
++     *
++     * @param view The View object which you long press and drag.
++     * @param index The image index want to display
++     * @param files The array of file you want to share.
++     * @param mimeTypes The array of appropriate mimetype.
++     */
+     public static void dragMultipleImage(View view, Context context, int index, File[] files, String[] mimeTypes) {
+         dragMultipleImage(view, context, index, files, mimeTypes, 0);
+     }
+ 
++    /**
++     * Long Press and Drag to share multi images.
++     *
++     * @param view The View object which you long press and drag.
++     * @param index The image index want to display
++     * @param files The array of file you want to share.
++     * @param mimeTypes The array of appropriate mimetype.
++     * @param showAnimDelay delay show animation.
++     */
+     public static void dragMultipleImage(View view, Context context, int index, File[] files, String[] mimeTypes, int showAnimDelay) {
+         if (files.length <= 0) {
+             return;
+diff --git a/core/java/android/view/onestep/OneStepManager.java b/core/java/android/view/onestep/OneStepManager.java
+index f63109d..4304caa 100644
+--- a/core/java/android/view/onestep/OneStepManager.java
++++ b/core/java/android/view/onestep/OneStepManager.java
+@@ -20,55 +20,119 @@ import android.content.ComponentName;
+ import android.os.Handler;
+ import android.view.onestep.IOneStep;
+ 
+-/** {@hide} */
++/**
++ * The interface that apps use to talk to the one step manager.
++ * <p>
++ * Use <code>Context.getSystemService(Context.WINDOW_SERVICE)</code> to get one of these.
++ *
++ * @see android.content.Context#getSystemService
++ * @see android.content.Context#WINDOW_SERVICE
++ * 
++ * @hide
++ *  */
+ public interface OneStepManager {
+ 
++    /**
++     * One Step Mode state normal
++     */
+     public static final int BIT_SIDEBAR_IN_NONE_MODE = 0;
+ 
++    /**
++     * One Step Mode state in left_top
++     */
+     public static final int BIT_SIDEBAR_IN_LEFT_TOP_MODE = 1 << 0;
+ 
++    /**
++     * One Step Mode state int right_top
++     */
+     public static final int BIT_SIDEBAR_IN_RIGHT_TOP_MODE = 1 << 1;
+ 
++    /**
++     * The class to observe one step mode state changed.
++     * @author smartisan
++     *
++     */
+     public static interface OneStepStateObserver {
+         public void onEnterOneStepMode(int state);;
+ 
+         public void onExitOneStepMode();
+     }
+ 
++    /**
++     * Register one step mode observer
++     * @param observer 
++     * @param handler the handler to do logic 
++     */
+     public void registerStateObserver(OneStepStateObserver observer, Handler handler);
+ 
++    /**
++     * Clear the Observer
++     * @param observer 
++     * @param handler the handler to do logic 
++     */
+     public void unregisterStateObserver(OneStepStateObserver observer);
+ 
+     /**
+-     * Bind the onestep UI.( packages/apps/OneStep)
++     * Bind the onestep UI.( packages/apps/OneStep).
++     * 
+      */
+     public void bindOneStepUI(IOneStep onestep);
+ 
+-    // Need the OneStep_SERVICE permission
++    /**
++     * Reset the window to normal
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
+     public void resetWindow();
+ 
+-    // NOT need the OneStep_SERVICE permission
++    /**
++     * Whether in one step mode or not.
++     */
+     public boolean isInOneStepMode();
+ 
+-    // NOT need the OneStep_SERVICE permission
++    /**
++     * Get One Step mode state.
++     */
+     public int getOneStepModeState();
+ 
+-    // NOT need the OneStep_SERVICE permission
++    /**
++     * Whether the focus one one step window or not.
++     */
+     boolean isFocusedOnOneStep();
+ 
+-    // Need the OneStep_SERVICE permission
++    /**
++     * Request enter last one step mode.
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
+     public void requestEnterLastMode();
+ 
+-    public void resumeOneStep();
+-
+-    public void updateOngoing(ComponentName name, int token, int pendingNumbers,
+-            CharSequence title, int pid);
+-
+-    // Need the OneStep_SERVICE permission
++    /**
++     * Request exit one step mode.
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
+     public void requestExitOneStepMode();
+ 
+-    // Need the OneStep_SERVICE permission
++    /**
++     * Request enter one step mode.
++     * Can only be called with the ONE_STEP_SERVICE permission
++     */
+     public void requestEnterOneStepMode(int mode);
+ 
++
++    /**
++     * Resume one step UI .Cancel drag.
++     * Can only be called with the ONE_STEP permission
++     */
++    public void resumeOneStep();
++
++    /**
++     * Set one step UI enabled or not.
++     * Can only be called with the ONE_STEP permission
++     */
+     public void setEnabled(boolean enabled);
++
++    /**
++     * Drag text, image to one. For examle: smartisan notes.
++     */
++    public void updateOngoing(ComponentName name, int token, int pendingNumbers,
++            CharSequence title, int pid);
+ }
+diff --git a/core/res/AndroidManifest.xml b/core/res/AndroidManifest.xml
+index 17d967b..27bc711 100644
+--- a/core/res/AndroidManifest.xml
++++ b/core/res/AndroidManifest.xml
+@@ -1858,6 +1858,12 @@
+     <permission android:name="android.permission.STATUS_BAR_SERVICE"
+         android:protectionLevel="signature" />
+ 
++    <!-- Allows an application to open, close, or disable the status bar. 
++     Currently used only by system apps.
++    @hide -->
++    <permission android:name="android.permission.ONE_STEP"
++        android:protectionLevel="signature|system" />
++
+     <!-- Allows an application to be the side bar.Not for use by third party apps. 
+     @hide -->
+     <permission android:name="android.permission.ONE_STEP_SERVICE"
+diff --git a/services/core/java/com/android/server/onestep/OneStepManagerService.java b/services/core/java/com/android/server/onestep/OneStepManagerService.java
+index 7cb56c0..187f394 100644
+--- a/services/core/java/com/android/server/onestep/OneStepManagerService.java
++++ b/services/core/java/com/android/server/onestep/OneStepManagerService.java
+@@ -191,8 +191,14 @@ public class OneStepManagerService extends IOneStepManager.Stub {
+                 "SideBarManagerService");
+     }
+ 
++    private void enforceSidebarPerission() {
++        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.ONE_STEP,
++                "SideBarManagerService");
++    }
++
+     @Override
+     public void resumeOneStep() {
++        enforceSidebarPerission();
+         if (!isInOneStepMode()) {
+             return;
+         }
+@@ -225,6 +231,7 @@ public class OneStepManagerService extends IOneStepManager.Stub {
+ 
+     @Override
+     public void setEnabled(boolean enabled) {
++        enforceSidebarPerission();
+         if (mBar != null) {
+             try {
+                 if (DEBUG) {
+diff --git a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+index a5ccd23..1607b0c 100644
+--- a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
++++ b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+@@ -31,8 +31,8 @@ import android.widget.OverScroller;
+  * @hide
+  */
+ public class SystemGesturesPointerEventListener implements PointerEventListener {
+-    private static final String TAG = "533";
+-    private static final boolean DEBUG = true;
++    private static final String TAG = "SystemGestures";
++    private static final boolean DEBUG = false;
+     private static final long SWIPE_TIMEOUT_MS = 500;
+     private static final int MAX_TRACKED_POINTERS = 32;  // max per input system
+     private static final int UNTRACKED_POINTER = -1;
+@@ -199,22 +199,15 @@ public class SystemGesturesPointerEventListener implements PointerEventListener
+                 + " moved (" + fromX + "->" + x + "," + fromY + "->" + y + ") in " + elapsed);
+         int topFromDy = mSwipeStartThreshold;
+         int topDy = 0;
+-        int topFromDx = 80;
+         if (mInSidebarMode) {
+             topFromDy += mThumbOffsetScaleVertiS;
+             topDy = mThumbOffsetScaleVertiS;
+-            topFromDx = 0;
+         }
+         if (fromY <= topFromDy
+                 && y > topDy
+                 && y - fromY > mSwipeDistanceThreshold
+-                && elapsed < SWIPE_TIMEOUT_MS ) {
+-            if (fromX >= topFromDx
+-                    && fromX <= screenWidth - topFromDx) {
+-                return SWIPE_FROM_TOP;
+-            } else {
+-                return SWIPE_NONE;
+-            }
++                && elapsed < SWIPE_TIMEOUT_MS) {
++            return SWIPE_FROM_TOP;
+         }
+         if (fromY >= screenHeight - mSwipeStartThreshold
+                 && y < fromY - mSwipeDistanceThreshold
+-- 
+2.6.6
+

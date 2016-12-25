@@ -1,0 +1,143 @@
+From 00de203cdcd0c8bff53914e1eda566a2350da723 Mon Sep 17 00:00:00 2001
+From: wangqianchuang <wangqianchuang@smartisan.cn>
+Date: Fri, 22 Nov 2013 16:12:51 +0800
+Subject: [PATCH 1/2] Add frameworks/smartisanos
+
+Change-Id: I6e6da2458f886edada0c27f1f9c0c323b9496a02
+Signed-off-by: wangqianchuang <wangqianchuang@smartisan.cn>
+Signed-off-by: luzechun <luzechun@smartisan.cn>
+(cherry picked from commit a61236e9a5350ffbe341588f7a46895c0894208e)
+(cherry picked from commit 9b0f78279842341d104812d2b1f744e8fb8a896d)
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ core/clear_vars.mk                               |  1 +
+ core/java.mk                                     |  4 ++++
+ core/package_internal.mk                         | 21 ++++++++++++++++++++-
+ core/tasks/check_boot_jars/package_whitelist.txt |  4 ++++
+ target/product/core.mk                           |  4 +++-
+ target/product/core_minimal.mk                   |  3 ++-
+ 6 files changed, 34 insertions(+), 3 deletions(-)
+
+diff --git a/core/clear_vars.mk b/core/clear_vars.mk
+index 1a3ce19..6cbdc4e 100644
+--- a/core/clear_vars.mk
++++ b/core/clear_vars.mk
+@@ -2,6 +2,7 @@
+ ## Clear out values of all variables used by rule templates.
+ ###########################################################
+ 
++LOCAL_USE_FRAMEWORK_SMARTISANOS :=
+ LOCAL_MODULE:=
+ LOCAL_MODULE_PATH:=
+ LOCAL_MODULE_RELATIVE_PATH :=
+diff --git a/core/java.mk b/core/java.mk
+index f99e6ef..23a68eb 100644
+--- a/core/java.mk
++++ b/core/java.mk
+@@ -41,6 +41,10 @@ else
+   endif
+ endif
+ 
++ifeq ($(LOCAL_USE_FRAMEWORK_SMARTISANOS), true)
++LOCAL_JAVA_LIBRARIES := smartisanos $(LOCAL_JAVA_LIBRARIES)
++endif
++
+ proto_sources := $(filter %.proto,$(LOCAL_SRC_FILES))
+ ifneq ($(proto_sources),)
+ ifeq ($(LOCAL_PROTOC_OPTIMIZE_TYPE),micro)
+diff --git a/core/package_internal.mk b/core/package_internal.mk
+index 27fe9b4..e429eb8 100644
+--- a/core/package_internal.mk
++++ b/core/package_internal.mk
+@@ -268,11 +268,17 @@ ifdef LOCAL_EXPORT_PACKAGE_RESOURCES
+ resource_export_package := $(intermediates.COMMON)/package-export.apk
+ $(R_file_stamp): $(resource_export_package)
+ 
++ifeq (, $(ONE_SHOT_MAKEFILE))
++ifeq ($(LOCAL_PACKAGE_NAME), framework-smartisanos-res)
++pre := $(call intermediates-dir-for,APPS,framework-res,,COMMON)/package-export.apk
++endif
++endif
++
+ # add-assets-to-package looks at PRODUCT_AAPT_CONFIG, but this target
+ # can't know anything about PRODUCT.  Clear it out just for this target.
+ $(resource_export_package): PRIVATE_PRODUCT_AAPT_CONFIG :=
+ $(resource_export_package): PRIVATE_PRODUCT_AAPT_PREF_CONFIG :=
+-$(resource_export_package): $(all_res_assets) $(full_android_manifest) $(RenderScript_file_stamp) $(AAPT)
++$(resource_export_package): $(all_res_assets) $(full_android_manifest) $(RenderScript_file_stamp) $(AAPT) $(pre)
+ 	@echo "target Export Resources: $(PRIVATE_MODULE) ($@)"
+ 	$(create-empty-package)
+ 	$(add-assets-to-package)
+@@ -339,13 +345,26 @@ cm_plat_res_package_export_deps := \
+ endif # LOCAL_IGNORE_SUBDIR
+ 
+ endif # LOCAL_SDK_RES_VERSION
++
++ifeq ($(LOCAL_USE_FRAMEWORK_SMARTISANOS),true)
++framework_smartisanos_res_package_export := \
++	$(call intermediates-dir-for,APPS,framework-smartisanos-res,,COMMON)/package-export.apk
++framework_smartisanos_res_package_export_deps := \
++	$(dir $(framework_smartisanos_res_package_export))src/R.stamp
++else
++framework_smartisanos_res_package_export :=
++framework_smartisanos_res_package_export_deps :=
++endif # LOCAL_USE_FRAMEWORK_SMARTISANOS
++
+ all_library_res_package_exports := \
+     $(framework_res_package_export) \
++    $(framework_smartisanos_res_package_export) \
+     $(foreach lib,$(LOCAL_RES_LIBRARIES),\
+         $(call intermediates-dir-for,APPS,$(lib),,COMMON)/package-export.apk)
+ 
+ all_library_res_package_export_deps := \
+     $(framework_res_package_export_deps) \
++    $(framework_smartisanos_res_package_export_deps) \
+     $(foreach lib,$(LOCAL_RES_LIBRARIES),\
+         $(call intermediates-dir-for,APPS,$(lib),,COMMON)/src/R.stamp)
+ 
+diff --git a/core/tasks/check_boot_jars/package_whitelist.txt b/core/tasks/check_boot_jars/package_whitelist.txt
+index 4d62615..18f55f2 100644
+--- a/core/tasks/check_boot_jars/package_whitelist.txt
++++ b/core/tasks/check_boot_jars/package_whitelist.txt
+@@ -176,6 +176,10 @@ javax\.microedition\.khronos\.egl
+ 
+ android
+ 
++# smartisanos.jar
++smartisanos
++smartisanos\..*
++com\.smartisanos\..*
+ 
+ ###################################################
+ # telephony-common.jar
+diff --git a/target/product/core.mk b/target/product/core.mk
+index bd297b5..603d5f5 100644
+--- a/target/product/core.mk
++++ b/target/product/core.mk
+@@ -50,6 +50,8 @@ PRODUCT_PACKAGES += \
+     Telecom \
+     TeleService \
+     VpnDialogs \
+-    MmsService
++    MmsService \
++    framework-smartisanos-res \
++    smartisanos
+ 
+ $(call inherit-product, $(SRC_TARGET_DIR)/product/core_base.mk)
+diff --git a/target/product/core_minimal.mk b/target/product/core_minimal.mk
+index e8f2620..c11f823 100644
+--- a/target/product/core_minimal.mk
++++ b/target/product/core_minimal.mk
+@@ -94,7 +94,8 @@ PRODUCT_BOOT_JARS := \
+     voip-common \
+     ims-common \
+     apache-xml \
+-    org.apache.http.legacy.boot
++    org.apache.http.legacy.boot \
++    smartisanos
+ 
+ # The order of PRODUCT_SYSTEM_SERVER_JARS matters.
+ PRODUCT_SYSTEM_SERVER_JARS := \
+-- 
+2.6.6
+

@@ -1,0 +1,171 @@
+From 1b376e1bf452db4b46a60080160e04aa0fc9df7e Mon Sep 17 00:00:00 2001
+From: totopamimi <totopamimi@gmail.com>
+Date: Sun, 25 Dec 2016 12:52:35 +0800
+Subject: [PATCH 1/6] base: add resoure id for framework-smartisanos-res.apk &
+ smartisanos.jar
+
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ core/java/android/app/LoadedApk.java                              | 2 +-
+ core/java/android/content/pm/PackageParser.java                   | 2 +-
+ core/jni/fd_utils-inl.h                                           | 1 +
+ include/androidfw/ResourceTypes.h                                 | 2 ++
+ libs/androidfw/AssetManager.cpp                                   | 6 +++++-
+ libs/androidfw/ResourceTypes.cpp                                  | 8 +++++---
+ .../core/java/com/android/server/pm/PackageManagerService.java    | 2 ++
+ tools/aapt/ResourceTable.cpp                                      | 3 ++-
+ 8 files changed, 19 insertions(+), 7 deletions(-)
+
+diff --git a/core/java/android/app/LoadedApk.java b/core/java/android/app/LoadedApk.java
+index 76e55b7..c436c03 100644
+--- a/core/java/android/app/LoadedApk.java
++++ b/core/java/android/app/LoadedApk.java
+@@ -602,7 +602,7 @@ public final class LoadedApk {
+         final int N = packageIdentifiers.size();
+         for (int i = 0; i < N; i++) {
+             final int id = packageIdentifiers.keyAt(i);
+-            if (id == 0x01 || id == 0x7f || id == 0x3f) {
++            if (id == 0x01 || id == 0x02 || id == 0x7f || id == 0x3f) {
+                 continue;
+             }
+ 
+diff --git a/core/java/android/content/pm/PackageParser.java b/core/java/android/content/pm/PackageParser.java
+index bb46ef0..5b61f97 100644
+--- a/core/java/android/content/pm/PackageParser.java
++++ b/core/java/android/content/pm/PackageParser.java
+@@ -1354,7 +1354,7 @@ public class PackageParser {
+         }
+ 
+         final String packageName = attrs.getAttributeValue(null, "package");
+-        if (!"android".equals(packageName)) {
++        if (!"android".equals(packageName) && !"smartisanos".equals(packageName)) {
+             final String error = validateName(packageName, true, true);
+             if (error != null) {
+                 throw new PackageParserException(INSTALL_PARSE_FAILED_BAD_PACKAGE_NAME,
+diff --git a/core/jni/fd_utils-inl.h b/core/jni/fd_utils-inl.h
+index f245a7f..695cf3a 100644
+--- a/core/jni/fd_utils-inl.h
++++ b/core/jni/fd_utils-inl.h
+@@ -56,6 +56,7 @@ static const char* kPathWhitelist[] = {
+   "/system/etc/event-log-tags",
+   "/sys/kernel/debug/tracing/trace_marker",
+   "/system/framework/framework-res.apk",
++  "/system/framework/framework-smartisanos-res/framework-smartisanos-res.apk",
+   "/dev/urandom",
+   "/dev/ion",
+   "@netlink@",
+diff --git a/include/androidfw/ResourceTypes.h b/include/androidfw/ResourceTypes.h
+index ae955c6..4abffc4 100644
+--- a/include/androidfw/ResourceTypes.h
++++ b/include/androidfw/ResourceTypes.h
+@@ -250,6 +250,8 @@ enum {
+ static const size_t Res_MAXPACKAGE = 255;
+ static const size_t Res_MAXTYPE = 255;
+ 
++#define Res_FIRSTLIBPACKAGEID 0x03 // 3
++
+ /**
+  * Representation of a value in a resource, supplying type
+  * information.
+diff --git a/libs/androidfw/AssetManager.cpp b/libs/androidfw/AssetManager.cpp
+index 1add6c3..ef7d6ac 100644
+--- a/libs/androidfw/AssetManager.cpp
++++ b/libs/androidfw/AssetManager.cpp
+@@ -77,6 +77,7 @@ static const char* kAssetsRoot = "assets";
+ static const char* kAppZipName = NULL; //"classes.jar";
+ static const char* kSystemAssets = "framework/framework-res.apk";
+ static const char* kCMSDKAssets = "framework/org.cyanogenmod.platform-res.apk";
++static const char* kSOSSDKAssets = "framework/framework-smartisanos-res/framework-smartisanos-res.apk";
+ static const char* kAndroidManifest = "AndroidManifest.xml";
+ static const int   kComposedIconAsset = 128;
+ 
+@@ -511,7 +512,10 @@ bool AssetManager::addDefaultAssets()
+     String8 pathCM(root);
+     pathCM.appendPath(kCMSDKAssets);
+ 
+-    return addAssetPath(path, NULL) & addAssetPath(pathCM, NULL);
++    String8 pathSOS(root);
++    pathSOS.appendPath(kSOSSDKAssets);
++
++    return addAssetPath(path, NULL) & addAssetPath(pathCM, NULL) & addAssetPath(pathSOS, NULL);
+ }
+ 
+ int32_t AssetManager::nextAssetPath(const int32_t cookie) const
+diff --git a/libs/androidfw/ResourceTypes.cpp b/libs/androidfw/ResourceTypes.cpp
+index 6b498cd..ce98206 100644
+--- a/libs/androidfw/ResourceTypes.cpp
++++ b/libs/androidfw/ResourceTypes.cpp
+@@ -61,6 +61,7 @@ namespace android {
+ 
+ #define APP_PACKAGE_ID      0x7f
+ #define CMSDK_PACKAGE_ID    0x3f
++#define SOSSDK_PACKAGE_ID   0x02
+ #define SYS_PACKAGE_ID      0x01
+ #define OVERLAY_CMSDK_PACKAGE_ID    0x63
+ #define OVERLAY_APP_PACKAGE_ID      0x61
+@@ -3534,7 +3535,7 @@ void ResTable::Theme::dumpToLog() const
+ }
+ 
+ ResTable::ResTable()
+-    : mError(NO_INIT), mNextPackageId(2)
++    : mError(NO_INIT), mNextPackageId(Res_FIRSTLIBPACKAGEID)
+ {
+     memset(&mParams, 0, sizeof(mParams));
+     memset(mPackageMap, 0, sizeof(mPackageMap));
+@@ -3544,7 +3545,7 @@ ResTable::ResTable()
+ }
+ 
+ ResTable::ResTable(const void* data, size_t size, const int32_t cookie, bool copyData)
+-    : mError(NO_INIT), mNextPackageId(2)
++    : mError(NO_INIT), mNextPackageId(Res_FIRSTLIBPACKAGEID)
+ {
+     memset(&mParams, 0, sizeof(mParams));
+     memset(mPackageMap, 0, sizeof(mPackageMap));
+@@ -6388,6 +6389,7 @@ DynamicRefTable::DynamicRefTable(uint8_t packageId)
+     // Reserved package ids
+     mLookupTable[APP_PACKAGE_ID] = APP_PACKAGE_ID;
+     mLookupTable[SYS_PACKAGE_ID] = SYS_PACKAGE_ID;
++    mLookupTable[SOSSDK_PACKAGE_ID] = SOSSDK_PACKAGE_ID;
+     mLookupTable[CMSDK_PACKAGE_ID] = CMSDK_PACKAGE_ID;
+     mLookupTable[OVERLAY_APP_PACKAGE_ID] = OVERLAY_APP_PACKAGE_ID;
+     mLookupTable[OVERLAY_SYS_PACKAGE_ID] = OVERLAY_SYS_PACKAGE_ID;
+@@ -6805,7 +6807,7 @@ bool ResTable::isDynamicPackageId(const uint32_t pkgId) const {
+     return pkgId != APP_PACKAGE_ID && pkgId != SYS_PACKAGE_ID
+             && pkgId != OVERLAY_APP_PACKAGE_ID && pkgId != OVERLAY_SYS_PACKAGE_ID
+             && pkgId != OVERLAY_COMMON_PACKAGE_ID && pkgId != CMSDK_PACKAGE_ID
+-            && pkgId != OVERLAY_CMSDK_PACKAGE_ID;
++            && pkgId != OVERLAY_CMSDK_PACKAGE_ID && pkgId != SOSSDK_PACKAGE_ID;
+ }
+ 
+ status_t ResTable::removeIdmappedTypesFromPackageGroup(PackageGroup* packageGroup) const {
+diff --git a/services/core/java/com/android/server/pm/PackageManagerService.java b/services/core/java/com/android/server/pm/PackageManagerService.java
+index 920a850..f828061 100644
+--- a/services/core/java/com/android/server/pm/PackageManagerService.java
++++ b/services/core/java/com/android/server/pm/PackageManagerService.java
+@@ -2124,6 +2124,8 @@ public class PackageManagerService extends IPackageManager.Stub {
+             // code, so don't dexopt it to avoid the resulting log spew
+             alreadyDexOpted.add(frameworkDir.getPath() + "/org.cyanogenmod.platform-res.apk");
+ 
++            alreadyDexOpted.add(frameworkDir.getPath() + "/framework-smartisanos-res/framework-smartisanos-res.apk");
++
+             /**
+              * There are a number of commands implemented in Java, which
+              * we currently need to do the dexopt on so that they can be
+diff --git a/tools/aapt/ResourceTable.cpp b/tools/aapt/ResourceTable.cpp
+index fb0299e..44f622c 100644
+--- a/tools/aapt/ResourceTable.cpp
++++ b/tools/aapt/ResourceTable.cpp
+@@ -2846,8 +2846,9 @@ status_t ResourceTable::flatten(Bundle* bundle, const sp<const ResourceFilter>&
+     for (size_t i = 0; i < basePackageCount; i++) {
+         size_t packageId = table.getBasePackageId(i);
+         String16 packageName(table.getBasePackageName(i));
+-        if (packageId > 0x01 && packageId != 0x7f && packageId != 0x3f &&
++        if (packageId > 0x01 && packageId != 0x02 && packageId != 0x7f && packageId != 0x3f &&
+                 packageName != String16("android")
++                && packageName != String16("smartisanos")
+                 && packageName != String16("cyanogenmod.platform")) {
+             libraryPackages.add(sp<Package>(new Package(packageName, packageId)));
+         }
+-- 
+2.6.6
+

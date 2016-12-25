@@ -1,0 +1,45 @@
+From 840d47989d9e6ab3adf0e2525d95ce0556a26f78 Mon Sep 17 00:00:00 2001
+From: totopamimi <totopamimi@gmail.com>
+Date: Sun, 25 Dec 2016 13:46:44 +0800
+Subject: [PATCH] OneStep: remove unused styleable temporarily to fix build
+ error on CM(issue on CM only?)
+
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ res/values/attrs.xml                              | 2 ++
+ src/com/smartisanos/sidebar/view/TopItemView.java | 4 ++--
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/res/values/attrs.xml b/res/values/attrs.xml
+index 1557604..11f24bd 100644
+--- a/res/values/attrs.xml
++++ b/res/values/attrs.xml
+@@ -1,8 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ 
+ <resources>
++    <!--
+     <declare-styleable name="TopItemView">
+         <attr name="icon_content_paddingTop" format="dimension" />
+     </declare-styleable>
++    -->
+ </resources>
+ 
+diff --git a/src/com/smartisanos/sidebar/view/TopItemView.java b/src/com/smartisanos/sidebar/view/TopItemView.java
+index 54e54f7..260c8d8 100644
+--- a/src/com/smartisanos/sidebar/view/TopItemView.java
++++ b/src/com/smartisanos/sidebar/view/TopItemView.java
+@@ -49,8 +49,8 @@ public class TopItemView extends FrameLayout implements ITopItem {
+             int defStyleRes) {
+         super(context, attrs, defStyleAttr, defStyleRes);
+ 
+-        TypedArray ta = context.obtainStyledAttributes(attrs, R.styleable.TopItemView);
+-        mIconContentPaddingTop = ta.getDimensionPixelSize(R.styleable.TopItemView_icon_content_paddingTop, 0);
++//         TypedArray ta = context.obtainStyledAttributes(attrs, R.styleable.TopItemView);
++//         mIconContentPaddingTop = ta.getDimensionPixelSize(R.styleable.TopItemView_icon_content_paddingTop, 0);
+     }
+ 
+     @Override
+-- 
+2.6.6
+

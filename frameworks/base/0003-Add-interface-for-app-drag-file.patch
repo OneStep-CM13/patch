@@ -1,0 +1,1677 @@
+From 36b1d127072bacb38ecac114358751adec39e5da Mon Sep 17 00:00:00 2001
+From: zhangji <zhangji@smartisan.com>
+Date: Wed, 14 Dec 2016 21:11:08 +0800
+Subject: [PATCH 3/6] Add interface for app drag file.
+
+Signed-off-by: zhangji <zhangji@smartisan.com>
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ Android.mk                                         |  10 +-
+ core/java/android/view/onestep/MimeUtils.java      | 113 +++++
+ .../android/view/onestep/OneStepDragUtils.java     | 469 +++++++++++++++++++++
+ core/java/android/view/onestep/OneStepManager.java |  17 +-
+ .../android/view/onestep/OneStepManagerImpl.java   |  27 +-
+ core/java/android/widget/Editor.java               |  27 +-
+ core/java/android/widget/TextDragPopupWindow.java  | 179 ++++++++
+ .../smartisan_drag_text_popup_bg_normal.9.png      | Bin 0 -> 13868 bytes
+ .../smartisan_drag_text_popup_bg_pressed.9.png     | Bin 0 -> 15011 bytes
+ .../res/drawable/smartisan_drag_text_popup_bg.xml  |   6 +
+ core/res/res/layout/smartisan_drag_text_popup.xml  |  26 ++
+ core/res/res/values/smartisanos_dimens.xml         |   4 +
+ core/res/res/values/smartisanos_symbols.xml        |   9 +
+ .../server/onestep/OneStepManagerService.java      |  20 +-
+ 14 files changed, 884 insertions(+), 23 deletions(-)
+ create mode 100644 core/java/android/view/onestep/MimeUtils.java
+ create mode 100644 core/java/android/view/onestep/OneStepDragUtils.java
+ create mode 100644 core/java/android/widget/TextDragPopupWindow.java
+ create mode 100644 core/res/res/drawable-xxhdpi/smartisan_drag_text_popup_bg_normal.9.png
+ create mode 100644 core/res/res/drawable-xxhdpi/smartisan_drag_text_popup_bg_pressed.9.png
+ create mode 100644 core/res/res/drawable/smartisan_drag_text_popup_bg.xml
+ create mode 100644 core/res/res/layout/smartisan_drag_text_popup.xml
+
+diff --git a/Android.mk b/Android.mk
+index c03409e..cd7d9c5 100644
+--- a/Android.mk
++++ b/Android.mk
+@@ -25,6 +25,7 @@ LOCAL_PATH := $(call my-dir)
+ # R.java file as a prerequisite.
+ # TODO: find a more appropriate way to do this.
+ framework_res_source_path := APPS/framework-res_intermediates/src
++framework_smartisanos_res_source_path := APPS/framework-smartisanos-res_intermediates/src
+ 
+ # Build the master framework library.
+ # The framework contains too many method references (>64K) for poor old DEX.
+@@ -432,7 +433,8 @@ LOCAL_AIDL_INCLUDES += $(FRAMEWORKS_BASE_JAVA_SRC_DIRS)
+ LOCAL_INTERMEDIATE_SOURCES := \
+ 			$(framework_res_source_path)/android/R.java \
+ 			$(framework_res_source_path)/android/Manifest.java \
+-			$(framework_res_source_path)/com/android/internal/R.java
++			$(framework_res_source_path)/com/android/internal/R.java \
++                        $(framework_smartisanos_res_source_path)/com/smartisanos/internal/R.java
+ 
+ LOCAL_NO_STANDARD_LIBRARIES := true
+ LOCAL_JAVA_LIBRARIES := core-libart conscrypt okhttp core-junit bouncycastle ext
+@@ -451,8 +453,10 @@ framework_module := $(LOCAL_INSTALLED_MODULE)
+ # the source for this library.
+ framework_res_R_stamp := \
+ 	$(call intermediates-dir-for,APPS,framework-res,,COMMON)/src/R.stamp
+-$(full_classes_compiled_jar): $(framework_res_R_stamp)
+-$(built_dex_intermediate): $(framework_res_R_stamp)
++framework_smartisanos_res_R_stamp := \
++        $(call intermediates-dir-for,APPS,framework-smartisanos-res,,COMMON)/src/R.stamp
++$(full_classes_compiled_jar): $(framework_res_R_stamp) $(framework_smartisanos_res_R_stamp)
++$(built_dex_intermediate): $(framework_res_R_stamp) $(framework_smartisanos_res_R_stamp)
+ 
+ $(framework_module): | $(dir $(framework_module))framework-res.apk
+ 
+diff --git a/core/java/android/view/onestep/MimeUtils.java b/core/java/android/view/onestep/MimeUtils.java
+new file mode 100644
+index 0000000..b181cd8
+--- /dev/null
++++ b/core/java/android/view/onestep/MimeUtils.java
+@@ -0,0 +1,113 @@
++/**
++ * Copyright (c) 2016, The Smartisan Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++ 
++package android.view.onestep;
++
++import java.io.File;
++import java.util.HashMap;
++import java.util.Map;
++
++import android.text.TextUtils;
++
++import com.smartisanos.internal.R;
++
++/**
++ * Utilities for dealing with MIME types.
++ */
++final class MimeUtils {
++    private static final Map<String, Integer> mimeTypeToIconMap = new HashMap<String, Integer>();
++    private static final Map<String, Integer> extensionToIconMap = new HashMap<String, Integer>();
++
++    static {
++        add("", "fodp", R.drawable.file_icon_fodp);
++        add("", "fods", R.drawable.file_icon_fods);
++        add("", "fodt", R.drawable.file_icon_fodt);
++        add("", "pages", R.drawable.file_icon_pages);
++        add("", "numbers", R.drawable.file_icon_numbers);
++        add("application/vnd.ms-word.document.macroenabled.12", "docm", R.drawable.file_icon_docm);
++        add("application/x-7z-compressed", "7z", R.drawable.file_icon_7z);
++        add("application/vnd.oasis.opendocument.presentation", "odp", R.drawable.file_icon_odp);
++        add("application/vnd.oasis.opendocument.text", "odt", R.drawable.file_icon_odt);
++        add("application/pdf", "pdf", R.drawable.file_icon_pdf);
++        add("application/pgp-keys", "key", R.drawable.file_icon_key);
++        add("application/rar", "rar", R.drawable.file_icon_rar);
++        add("application/zip", "zip", R.drawable.file_icon_zip);
++        add("application/vnd.android.package-archive", "apk", R.drawable.file_icon_apk);
++        add("application/vnd.oasis.opendocument.spreadsheet", "ods", R.drawable.file_icon_ods);
++        add("application/msword", "doc", R.drawable.file_icon_doc);
++        add("application/msword", "dot", R.drawable.file_icon_dot);
++        add("application/vnd.ms-word.template.macroenabled.12", "dotm", R.drawable.file_icon_dotm);
++        add("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx", R.drawable.file_icon_docx);
++        add("application/vnd.openxmlformats-officedocument.wordprocessingml.template", "dotx", R.drawable.file_icon_dotx);
++        add("application/vnd.ms-excel", "xls", R.drawable.file_icon_xls);
++        add("application/vnd.ms-excel", "xlt", R.drawable.file_icon_xlt);
++        add("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","xlsx", R.drawable.file_icon_xlsx);
++        add("application/vnd.openxmlformats-officedocument.spreadsheetml.template", "xltx", R.drawable.file_icon_xltx);
++        add("application/vnd.ms-powerpoint", "ppt", R.drawable.file_icon_ppt);
++        add("application/vnd.ms-powerpoint", "pot", R.drawable.file_icon_pot);
++        add("application/vnd.openxmlformats-officedocument.presentationml.presentation", "pptx", R.drawable.file_icon_pptx);
++        add("application/vnd.ms-powerpoint.presentation.macroenabled.12", "pptm", R.drawable.file_icon_pptm);
++        add("application/vnd.openxmlformats-officedocument.presentationml.template", "potx", R.drawable.file_icon_potx);
++        add("text/plain", "txt", R.drawable.file_icon_txt);
++        add("message/rfc822", "eml", R.drawable.file_icon_eml);
++    }
++
++    private static void add(String mimeType, String extension, int resId) {
++        if (!TextUtils.isEmpty(mimeType)) {
++            mimeTypeToIconMap.put(mimeType, resId);
++        }
++        if (!TextUtils.isEmpty(extension)) {
++            extensionToIconMap.put(extension, resId);
++        }
++    }
++
++    private MimeUtils() {
++    }
++
++    public static int getFileIconResId(String mimeType, String extension) {
++        if (!TextUtils.isEmpty(extension)) {
++            if (extensionToIconMap.containsKey(extension)) {
++                return extensionToIconMap.get(extension);
++            }
++        }
++        if (!TextUtils.isEmpty(mimeType)) {
++            if (mimeTypeToIconMap.containsKey(mimeType)) {
++                return mimeTypeToIconMap.get(mimeType);
++            }
++            // use default for current type
++            if (mimeType.startsWith("images/")) {
++                return R.drawable.file_icon_type_image;
++            } else if (mimeType.startsWith("audio/")) {
++                return R.drawable.file_icon_type_audio;
++            } else if (mimeType.startsWith("video/")) {
++                return R.drawable.file_icon_type_video;
++            }
++        }
++        return R.drawable.file_icon_default;
++    }
++
++    public static int getFileIconResId(String mimeType, File file) {
++        String suffix = null;
++        String name = file.getName();
++        if (!TextUtils.isEmpty(name)) {
++            String[] sp = name.split("\\.");
++            if (sp.length > 1) {
++                suffix = sp[sp.length - 1];
++            }
++        }
++        return MimeUtils.getFileIconResId(mimeType, suffix);
++    }
++}
+diff --git a/core/java/android/view/onestep/OneStepDragUtils.java b/core/java/android/view/onestep/OneStepDragUtils.java
+new file mode 100644
+index 0000000..e231c51
+--- /dev/null
++++ b/core/java/android/view/onestep/OneStepDragUtils.java
+@@ -0,0 +1,469 @@
++/**
++ * Copyright (c) 2016, The Smartisan Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++ 
++package android.view.onestep;
++
++import android.content.ClipData;
++
++import android.content.ComponentName;
++import android.content.Context;
++import android.content.Intent;
++import android.graphics.Bitmap;
++import android.graphics.BitmapFactory;
++import android.graphics.Canvas;
++import android.graphics.Color;
++import android.graphics.Paint;
++import android.graphics.Paint.Align;
++import android.graphics.Paint.FontMetrics;
++import android.graphics.Point;
++import android.graphics.drawable.Drawable;
++import android.graphics.drawable.NinePatchDrawable;
++import android.net.Uri;
++import android.os.RemoteException;
++import android.view.View;
++
++import com.smartisanos.internal.R;
++
++import java.io.File;
++/** {@hide} */
++public class OneStepDragUtils {
++
++    private static final class DragSource {
++        public static final String APP = "0";
++        public static final String IMAGE = "1";
++        public static final String FILE = "2";
++        public static final String CLIPBOARD = "3";
++    }
++
++    private static final class DragContent {
++        public static final String IMAGE = "0";
++        public static final String FILE = "1";
++        public static final String TEXT = "2";
++        public static final String LINK = "3";
++    }
++
++  public static void dragText(View view, Context context, CharSequence text) {
++        dragText(view, context, text, null);
++    }
++
++    public static void dragText(View view, Context context, CharSequence text, Object myLocalState) {
++        ClipData cd = ClipData.newPlainText(null, text);
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_normal_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        view.startDrag(cd, new TextDragShadowBuilder(context, text.toString()), myLocalState, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
++    }
++
++    public static void dragText(View view, Context context, CharSequence text, Bitmap content, Bitmap avatar) {
++        dragText(view, context, text, null, content, avatar);
++    }
++
++    public static void dragText(View view, Context context, CharSequence text, Bitmap background, Bitmap content, Bitmap avatar) {
++        if (content == null && avatar == null) {
++            dragText(view, context, text);
++            return;
++        }
++        ClipData cd = ClipData.newPlainText(null, text);
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_card_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        view.startDrag(cd, new CardDragShadowBuilder(context, background, content, avatar), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
++    }
++
++    public static void dragLink(View view, Context context, CharSequence link) {
++        ClipData cd = ClipData.newPlainText(null, link);
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_normal_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        view.startDrag(cd, new LinkDragShadowBuilder(context, link.toString()), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
++    }
++
++    public static void dragLink(View view, Context context, CharSequence link, Bitmap content, Bitmap avatar) {
++        dragLink(view, context, link, null, content, avatar);
++    }
++
++    public static void dragLink(View view, Context context, CharSequence link, Bitmap background, Bitmap content, Bitmap avatar) {
++        if (content == null && avatar == null) {
++            dragLink(view, context, link);
++            return;
++        }
++        ClipData cd = ClipData.newPlainText(null, link);
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_card_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        view.startDrag(cd, new CardDragShadowBuilder(context, background, content, avatar), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
++    }
++
++    public static void dragFile(View view, Context context, File file, String mimeType) {
++        dragFile(view, context, file, mimeType, file.getName());
++    }
++
++    public static void dragFile(View view, Context context, File file, String mimeType, Bitmap content, Bitmap avatar) {
++        dragFile(view, context, file, mimeType, null, content, avatar);
++    }
++
++    public static void dragFile(View view, Context context, File file, String mimeType, Bitmap background, Bitmap content, Bitmap avatar) {
++        if("text/plain".equals(mimeType)){
++            mimeType = "application/*";
++        }
++        if (content == null && avatar == null) {
++            dragFile(view, context, file, mimeType);
++            return;
++        }
++        ClipData cd = new ClipData(null, new String[] { mimeType }, new ClipData.Item(Uri.fromFile(file)));
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_card_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        view.startDrag(cd, new CardDragShadowBuilder(context, background, content, avatar), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
++    }
++
++    public static void dragFile(View view, Context context, File file, String mimeType, String displayname){
++        if("text/plain".equals(mimeType)){
++            mimeType = "application/*";
++        }
++
++        int resId = MimeUtils.getFileIconResId(mimeType, file);
++        Bitmap fileIcon = null;
++        if(resId != 0){
++            Bitmap tmp = BitmapFactory.decodeResource(context.getResources(), resId);
++            fileIcon = getScaledBitmap(tmp, 0.9f); // sorry for this magic number...
++            tmp.recycle();
++        }
++
++        ClipData cd = new ClipData(null, new String[]{mimeType}, new ClipData.Item(Uri.fromFile(file)));
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_normal_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        view.startDrag(cd, new FileDragShadowBuilder(context, displayname, fileIcon), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
++    }
++
++    public static void dragImage(View view, Context context, File file, String mimeType) {
++        dragImage(view, context, null, file, mimeType);
++    }
++
++    public static void dragImage(View view, Context context, Bitmap content, File file, String mimeType) {
++        ClipData cd = new ClipData(null, new String[]{mimeType}, new ClipData.Item(Uri.fromFile(file)));
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_image_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        if (content == null) {
++            content = BitmapFactory.decodeFile(file.getAbsolutePath());
++            if (content == null) {
++                return;
++            }
++        }
++        view.startDrag(cd, new ImageDragShadowBuilder(context, content), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset));
++    }
++
++    public static void dragMultipleImage(View view, Context context, File[] files, String[] mimeTypes) {
++        dragMultipleImage(view, context, 0, files, mimeTypes);
++    }
++
++    public static void dragMultipleImage(View view, Context context, int index, File[] files, String[] mimeTypes) {
++        dragMultipleImage(view, context, index, files, mimeTypes, 0);
++    }
++
++    public static void dragMultipleImage(View view, Context context, int index, File[] files, String[] mimeTypes, int showAnimDelay) {
++        if (files.length <= 0) {
++            return;
++        }
++        ClipData cd = new ClipData(null, mimeTypes, new ClipData.Item(Uri.fromFile(files[0])));
++        for (int i = 1; i < files.length; ++i) {
++            cd.addItem(new ClipData.Item(Uri.fromFile(files[i])));
++        }
++
++        int arrowOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_image_arrow_point_offset);
++        int touchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        if(index < 0 || index >= files.length) {
++            index = 0;
++        }
++        Bitmap content = BitmapFactory.decodeFile(files[index].getAbsolutePath());
++        if (content == null) {
++            return;
++        }
++        Bitmap background = null;
++        if (files.length == 2) {
++            background = BitmapFactory.decodeResource(context.getResources(), R.drawable.drag_image_background_2);
++        } else if (files.length > 2) {
++            background = BitmapFactory.decodeResource(context.getResources(), R.drawable.drag_image_background_3);
++        }
++
++        view.startDrag(cd, new ImageDragShadowBuilder(context, background, content), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + touchPointOffset), showAnimDelay);
++    }
++
++    private static Bitmap getScaledBitmap(Bitmap bmp, float scale){
++        int width = (int) (bmp.getWidth() * scale);
++        int height = (int) (bmp.getHeight() * scale);
++        return Bitmap.createScaledBitmap(bmp, width, height, false);
++    }
++
++    private static class BaseDragShadowBuilder extends View.DragShadowBuilder{
++        protected Context mContext;
++        protected int mTouchPointOffset = 0;
++        public BaseDragShadowBuilder(Context context){
++            mContext = context;
++            mTouchPointOffset = context.getResources().getDimensionPixelSize(R.dimen.drag_touch_point_offset);
++        }
++    }
++
++    private static class SOSDragShadowBuilder extends BaseDragShadowBuilder{
++        private NinePatchDrawable mBackground;
++        private String mText;
++        private int mMaxWidth, mMinWidth;
++
++        private int mWidth = 0;
++        private int mHeight = 0;
++        private int mTextSize = 0;
++        private int mTextColor = Color.WHITE;
++
++        private Drawable mLinkIcon;
++        private Bitmap mFileIcon;
++        private Bitmap mFileIconShadow;
++        private int mFileIconShadowCover;
++        private int mFileIconSpace;
++        private int mPaddingLeft;
++        private int mPaddingRight;
++        private int mPaddingIconText;
++        private Paint mPaint = new Paint();
++
++        public SOSDragShadowBuilder(Context context, String text, Drawable linkIcon, Bitmap fileIcon, int maxWidth, int minWidth, int paddingLeft, int paddingRight, int paddingIconText){
++            super(context);
++            mText = text;
++            mLinkIcon = linkIcon;
++            mFileIcon = fileIcon;
++            mBackground = (NinePatchDrawable)context.getResources().getDrawable(R.drawable.drag_background);
++            mTextSize = context.getResources().getDimensionPixelSize(R.dimen.drag_text_size);
++            mTextColor = context.getResources().getColor(R.color.drag_text_color);
++            mHeight = mBackground.getMinimumHeight();
++
++            mPaint.setTextSize(mTextSize);
++            mPaint.setColor(mTextColor);
++            mPaint.setTextAlign(Align.CENTER);
++            mPaint.setAntiAlias(true);
++            // compute suitable width
++            mMaxWidth = maxWidth;
++            mMinWidth = minWidth;
++            mPaddingLeft= paddingLeft;
++            mPaddingRight = paddingRight;
++            mPaddingIconText = paddingIconText;
++            float curWidth = mPaddingLeft + (linkIcon != null ? linkIcon.getIntrinsicWidth() + mPaddingIconText: 0) + mPaint.measureText(mText) + paddingRight;
++            if(curWidth > maxWidth){
++                // cur mString !
++                for(int i = 1; i <= mText.length(); ++ i){
++                    String now = mText.substring(0, i) + "...";
++                    if(mPaddingLeft + (linkIcon != null ? linkIcon.getIntrinsicWidth() + mPaddingIconText: 0) + mPaint.measureText(now) + paddingRight > maxWidth){
++                        mText = mText.substring(0, i - 1) + "...";
++                        mWidth = (int) (mPaddingLeft + (linkIcon != null ? linkIcon.getIntrinsicWidth() + mPaddingIconText: 0) + mPaint.measureText(mText) + paddingRight);
++                        break;
++                    }
++                }
++            }else if(curWidth < minWidth){
++                mWidth = minWidth;
++            }else{
++                mWidth = (int) (curWidth + 0.5f);
++            }
++
++            // add file icon at last
++            if(mFileIcon != null){
++                mFileIconShadow = BitmapFactory.decodeResource(mContext.getResources(), R.drawable.file_icon_shadow);
++                mFileIconShadowCover = mContext.getResources().getDimensionPixelSize(R.dimen.drag_file_icon_shadow_cover);
++                mFileIconSpace = mFileIconShadow.getWidth() - mFileIconShadowCover;
++                mWidth += mFileIconSpace;
++            }
++        }
++
++        @Override
++        public void onProvideShadowMetrics(Point shadowSize,
++                Point shadowTouchPoint) {
++            if (mFileIcon != null) {
++                shadowSize.set(mWidth, mHeight);
++                shadowTouchPoint.set(shadowSize.x / 2 + mFileIcon.getWidth() / 2, shadowSize.y / 2 + mTouchPointOffset);
++            }else{
++                shadowSize.set(mWidth, mHeight);
++                shadowTouchPoint.set(shadowSize.x / 2, shadowSize.y / 2 + mTouchPointOffset);
++            }
++        }
++
++        @Override
++        public void onDrawShadow(Canvas canvas) {
++            int leftSpace = mFileIconSpace;
++            if(mFileIcon != null){
++                //draw file icon and shadow
++                canvas.drawBitmap(mFileIconShadow, 0, (mHeight - mFileIconShadow.getHeight()) / 2, null);
++                canvas.drawBitmap(mFileIcon, (mFileIconShadow.getWidth() - mFileIcon.getWidth()) / 2, (mHeight - mFileIcon.getHeight()) / 2, null);
++            }
++
++            // background
++            mBackground.setBounds(leftSpace , 0, mWidth, mHeight);
++            mBackground.draw(canvas);
++
++            // draw icon
++            if(mLinkIcon != null){
++                int height = mLinkIcon.getIntrinsicHeight();
++                int width = mLinkIcon.getIntrinsicWidth();
++                int left = mPaddingLeft;
++                int top = (mHeight - height) / 2;
++                mLinkIcon.setBounds(leftSpace + left, top, left + width, top + height);
++                mLinkIcon.draw(canvas);
++
++                // text content
++                FontMetrics fm = mPaint.getFontMetrics();
++                float txt_height = fm.bottom - fm.top;
++                float txt_width = mPaint.measureText(mText);
++                int paddingLeft = (int) (mPaddingLeft + (mLinkIcon != null ? mLinkIcon.getIntrinsicWidth() + mPaddingIconText: 0));
++                canvas.drawText(mText, leftSpace + paddingLeft + txt_width / 2, mHeight - (mHeight - txt_height) / 2 - fm.bottom , mPaint);
++            } else {
++                // text content, center !
++                FontMetrics fm = mPaint.getFontMetrics();
++                float height = fm.bottom - fm.top;
++                float width = mPaint.measureText(mText);
++                canvas.drawText(mText, leftSpace + (mWidth - leftSpace) / 2, mHeight - (mHeight - height) / 2 - fm.bottom, mPaint);
++            }
++        }
++    }
++
++    private static final class TextDragShadowBuilder extends SOSDragShadowBuilder{
++        public TextDragShadowBuilder(Context context, String text){
++            super(context, text, null, null,
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_layout_maxwidth),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_layout_minwidth),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_background_padding),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_background_padding),
++                    0);
++        }
++    }
++
++    private static class LinkDragShadowBuilder extends SOSDragShadowBuilder{
++        public LinkDragShadowBuilder(Context context, String link){
++            super(context, link, context.getResources().getDrawable(R.drawable.link_icon), null,
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_layout_maxwidth),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_layout_minwidth),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_background_padding),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_background_padding),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_link_icon_padding));
++        }
++    }
++
++    private static final class FileDragShadowBuilder extends SOSDragShadowBuilder{
++        public FileDragShadowBuilder(Context context, String filepath, Bitmap fileIcon){
++            super(context, filepath, null, fileIcon,
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_layout_maxwidth),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_layout_minwidth),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_background_padding),
++                    context.getResources().getDimensionPixelSize(R.dimen.drag_background_padding),
++                    0);
++        }
++    }
++
++    private static class ImageDragShadowBuilder extends BaseDragShadowBuilder {
++        private Bitmap mBackground;
++        private Bitmap mContent;
++
++        private int mSize;
++
++        public ImageDragShadowBuilder(Context context, Bitmap content) {
++            this(context, null, content);
++        }
++
++        public ImageDragShadowBuilder(Context context, Bitmap background, Bitmap content) {
++            super(context);
++            mContent = content;
++            if (background != null) {
++                mBackground = background;
++            } else {
++                mBackground = BitmapFactory.decodeResource(context.getResources(), R.drawable.drag_image_background);
++            }
++
++            mContent = content;
++            mSize = context.getResources().getDimensionPixelSize(R.dimen.drag_image_size);
++
++            if (content.getWidth() > content.getHeight()) {
++                Bitmap bm = Bitmap.createBitmap(mContent, (content.getWidth() - content.getHeight()) / 2, 0, content.getHeight(), content.getHeight());
++                mContent.recycle();
++                mContent = bm;
++            } else if (content.getWidth() < content.getHeight()) {
++                Bitmap bm = Bitmap.createBitmap(mContent, 0, (content.getHeight() - content.getWidth()) / 2, content.getWidth(), content.getWidth());
++                mContent.recycle();
++                mContent = bm;
++            }
++
++            if (mContent.getWidth() != mSize) {
++                Bitmap bm = Bitmap.createScaledBitmap(mContent, mSize, mSize, false);
++                mContent.recycle();
++                mContent = bm;
++            }
++        }
++
++        @Override
++        public void onProvideShadowMetrics(Point shadowSize,
++                Point shadowTouchPoint) {
++            shadowSize.set(mBackground.getWidth(), mBackground.getHeight());
++            shadowTouchPoint.set(shadowSize.x / 2, shadowSize.y / 2 + mTouchPointOffset);
++        }
++
++        @Override
++        public void onDrawShadow(Canvas canvas) {
++            // draw image content
++            int left = (canvas.getWidth() - mSize) / 2;
++            int top = (canvas.getHeight() - mSize) / 2;
++            canvas.drawBitmap(mContent, left, top, null);
++
++            // draw background
++            canvas.drawBitmap(mBackground, 0, 0, null);
++        }
++    }
++
++    private static class CardDragShadowBuilder extends BaseDragShadowBuilder {
++        private Bitmap mCardBackground;
++        private Bitmap mContent;
++        private Bitmap mAvatar;
++
++        private float mPaddingAvatar;
++
++        public CardDragShadowBuilder(Context context, Bitmap background, Bitmap content, Bitmap avatar) {
++            super(context);
++            if (background != null) {
++                mCardBackground = background;
++            } else {
++                mCardBackground = BitmapFactory.decodeResource(context.getResources(), R.drawable.drag_card_bg);
++            }
++            if (content != null) {
++                mContent = content;
++            } else {
++                mContent = BitmapFactory.decodeResource(context.getResources(), R.drawable.drag_card_content);
++            }
++            mAvatar = avatar;
++            mPaddingAvatar = context.getResources().getDimensionPixelSize(R.dimen.drag_card_padding_avatar);
++        }
++
++        @Override
++        public void onProvideShadowMetrics(Point shadowSize,
++                Point shadowTouchPoint) {
++            shadowSize.set(mCardBackground.getWidth(), mCardBackground.getHeight());
++            shadowTouchPoint.set(shadowSize.x / 2, shadowSize.y / 2 + mTouchPointOffset);
++        }
++
++        @Override
++        public void onDrawShadow(Canvas canvas) {
++            canvas.drawBitmap(mCardBackground, 0, 0, null);
++
++            //draw content
++            int left = (canvas.getWidth() - mContent.getWidth()) / 2;
++            int top = (canvas.getHeight() - mContent.getHeight()) / 2;
++            canvas.drawBitmap(mContent, left, top, null);
++
++            //draw avatar
++            if(mAvatar != null){
++                left += mPaddingAvatar;
++                top = (canvas.getHeight() - mAvatar.getHeight()) / 2;
++                canvas.drawBitmap(mAvatar, left, top, null);
++            }
++        }
++    }
++}
+diff --git a/core/java/android/view/onestep/OneStepManager.java b/core/java/android/view/onestep/OneStepManager.java
+index ea4531c..f63109d 100644
+--- a/core/java/android/view/onestep/OneStepManager.java
++++ b/core/java/android/view/onestep/OneStepManager.java
+@@ -1,4 +1,19 @@
+-
++/**
++ * Copyright (c) 2016, The Smartisan Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++ 
+ package android.view.onestep;
+ 
+ import android.content.ComponentName;
+diff --git a/core/java/android/view/onestep/OneStepManagerImpl.java b/core/java/android/view/onestep/OneStepManagerImpl.java
+index 104445d..5724b06 100644
+--- a/core/java/android/view/onestep/OneStepManagerImpl.java
++++ b/core/java/android/view/onestep/OneStepManagerImpl.java
+@@ -1,4 +1,19 @@
+-
++/**
++ * Copyright (c) 2016, The Smartisan Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++ 
+ package android.view.onestep;
+ 
+ import java.util.ArrayList;
+@@ -133,32 +148,28 @@ public final class OneStepManagerImpl implements OneStepManager {
+     @Override
+     public boolean isInOneStepMode() {
+         try {
+-            sInstanse.get().isInOneStepMode();
+-            ;
++            return sInstanse.get().isInOneStepMode();
+         } catch (RemoteException e) {
+             throw e.rethrowAsRuntimeException();
+         }
+-        return false;
+     }
+ 
+     @Override
+     public int getOneStepModeState() {
+         try {
+-            sInstanse.get().getOneStepModeState();
++            return sInstanse.get().getOneStepModeState();
+         } catch (RemoteException e) {
+             throw e.rethrowAsRuntimeException();
+         }
+-        return 0;
+     }
+ 
+     @Override
+     public boolean isFocusedOnOneStep() {
+         try {
+-            sInstanse.get().isFocusedOnOneStep();
++            return sInstanse.get().isFocusedOnOneStep();
+         } catch (RemoteException e) {
+             throw e.rethrowAsRuntimeException();
+         }
+-        return false;
+     }
+ 
+     @Override
+diff --git a/core/java/android/widget/Editor.java b/core/java/android/widget/Editor.java
+index 13c1937..7a88667 100644
+--- a/core/java/android/widget/Editor.java
++++ b/core/java/android/widget/Editor.java
+@@ -2136,9 +2136,10 @@ public class Editor {
+         return new DragShadowBuilder(shadowView);
+     }
+ 
+-    private static class DragLocalState {
++    static class DragLocalState {
+         public TextView sourceTextView;
+         public int start, end;
++        public boolean highlight = false;
+ 
+         public DragLocalState(TextView sourceTextView, int start, int end) {
+             this.sourceTextView = sourceTextView;
+@@ -2183,23 +2184,29 @@ public class Editor {
+         if (dragDropIntoItself) {
+             int dragSourceStart = dragLocalState.start;
+             int dragSourceEnd = dragLocalState.end;
++            // Inserting text before selection has shifted positions
++            final int shift = mTextView.getText().length() - originalLength;
+             if (max <= dragSourceStart) {
+-                // Inserting text before selection has shifted positions
+-                final int shift = mTextView.getText().length() - originalLength;
+                 dragSourceStart += shift;
+                 dragSourceEnd += shift;
++            } else {
++                min -= shift;
+             }
+ 
+             // Delete original selection
+             mTextView.deleteText_internal(dragSourceStart, dragSourceEnd);
+ 
+-            // Make sure we do not leave two adjacent spaces.
+-            final int prevCharIdx = Math.max(0,  dragSourceStart - 1);
+-            final int nextCharIdx = Math.min(mTextView.getText().length(), dragSourceStart + 1);
+-            if (nextCharIdx > prevCharIdx + 1) {
+-                CharSequence t = mTextView.getTransformedText(prevCharIdx, nextCharIdx);
+-                if (Character.isSpaceChar(t.charAt(0)) && Character.isSpaceChar(t.charAt(1))) {
+-                    mTextView.deleteText_internal(prevCharIdx, prevCharIdx + 1);
++            if (dragLocalState.highlight) {
++                mTextView.setCursorPosition_internal(min, min + content.length());
++            } else {
++                // Make sure we do not leave two adjacent spaces.
++                final int prevCharIdx = Math.max(0, dragSourceStart - 1);
++                final int nextCharIdx = Math.min(mTextView.getText().length(), dragSourceStart + 1);
++                if (nextCharIdx > prevCharIdx + 1) {
++                    CharSequence t = mTextView.getTransformedText(prevCharIdx, nextCharIdx);
++                    if (Character.isSpaceChar(t.charAt(0)) && Character.isSpaceChar(t.charAt(1))) {
++                        mTextView.deleteText_internal(prevCharIdx, prevCharIdx + 1);
++                    }
+                 }
+             }
+         }
+diff --git a/core/java/android/widget/TextDragPopupWindow.java b/core/java/android/widget/TextDragPopupWindow.java
+new file mode 100644
+index 0000000..6bfa823
+--- /dev/null
++++ b/core/java/android/widget/TextDragPopupWindow.java
+@@ -0,0 +1,179 @@
++package android.widget;
++
++import android.content.ClipData;
++import android.content.Context;
++import android.graphics.Point;
++import android.util.DisplayMetrics;
++import android.util.Log;
++import android.view.DragEvent;
++import android.view.Gravity;
++import android.view.LayoutInflater;
++import android.view.MotionEvent;
++import android.view.View;
++import android.view.View.OnDragListener;
++import android.view.ViewGroup;
++import android.view.WindowManager;
++
++import java.lang.reflect.Method;
++
++/**
++ * @hide
++ */
++public class TextDragPopupWindow {
++
++    private final static String TAG = "TextDragPopupWindow";
++
++    private final View mParent;
++    private final OnDragListener mDragListerner;
++
++    private final PopupWindow mContainer;
++    private final Context mContext;
++    private final View mContentView;
++    private final TextView mText;
++    private final int mTouchPointOffset;
++
++    private boolean mDeferedHide;
++    private Editor.DragLocalState mDragLocalState;
++
++    public TextDragPopupWindow(View parent, OnDragListener dragListener) {
++        mParent = parent;
++        mParent.setOnDragListener(new OnDragListener() {
++            @Override
++            public boolean onDrag(View v, DragEvent event) {
++                switch (event.getAction()) {
++                    case DragEvent.ACTION_DRAG_ENDED:
++                        mParent.getViewRootImpl().setLocalDragState(null);
++                        break;
++                }
++                return false;
++            }
++        });
++        mDragListerner = dragListener;
++        mContext = mParent.getContext();
++        mContainer = new PopupWindow(mContext, null,
++                com.android.internal.R.attr.textSelectHandleWindowStyle);
++        mContainer.setSplitTouchEnabled(true);
++        mContainer.setClippingEnabled(false);
++        mContainer.setWidth(ViewGroup.LayoutParams.WRAP_CONTENT);
++        mContainer.setHeight(ViewGroup.LayoutParams.WRAP_CONTENT);
++        mContainer.setWindowLayoutType(WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL);
++        mContentView = LayoutInflater.from(mContext).inflate(
++                com.android.internal.R.layout.smartisan_drag_text_popup, null);
++        mContentView.setOnTouchListener(new View.OnTouchListener() {
++            @Override
++            public boolean onTouch(View v, MotionEvent event) {
++                if (event.getAction() == MotionEvent.ACTION_DOWN) {
++                    mDeferedHide = true;
++                    if (mDragListerner != null) {
++                        mDragListerner.onDrag(v, null);
++                    }
++                    mContentView.setPressed(true);
++
++                    startDrag();
++                }
++                return true;
++            }
++        });
++        // Add a outer layout to contain scaled ContentView;
++        FrameLayout frameLayout = new FrameLayout(mContext);
++        FrameLayout.LayoutParams flp = new
++                FrameLayout.LayoutParams(
++                ViewGroup.LayoutParams.WRAP_CONTENT,
++                ViewGroup.LayoutParams.WRAP_CONTENT,
++                Gravity.CENTER_VERTICAL | Gravity.CENTER_HORIZONTAL);
++        final int scaleMargin = mContext.getResources().getDimensionPixelOffset(com.android.internal.R.dimen.drag_scale_margin);
++        flp.leftMargin = scaleMargin;
++        flp.rightMargin = scaleMargin;
++        frameLayout.addView(mContentView, flp);
++        mContainer.setContentView(frameLayout);
++        mText = (TextView) mContentView.findViewById(com.android.internal.R.id.drag_text_id);
++        mTouchPointOffset = mContext.getResources().getDimensionPixelSize(
++                com.android.internal.R.dimen.drag_touch_point_offset);
++    }
++
++
++    public static boolean isSideBarShowing() {
++        try{
++            Class<?> clz = Class.forName("smartisanos.util.SidebarUtils");
++            Method method = clz.getMethod("isSidebarShowing", new Class[] { Context.class });
++            Boolean result = (Boolean) method.invoke(clz, (Context) null);
++            return result;
++        } catch (Exception e){
++            e.fillInStackTrace();
++            Log.e(TAG, "Reflect isSideBarShowing() fails, e=" + e);
++            return false;
++        }
++    }
++
++    public int measureContent(String text) {
++        mText.setText(text);
++        final DisplayMetrics displayMetrics = mContext.getResources().getDisplayMetrics();
++        mContentView.measure(
++                View.MeasureSpec.makeMeasureSpec(displayMetrics.widthPixels,
++                        View.MeasureSpec.AT_MOST),
++                View.MeasureSpec.makeMeasureSpec(displayMetrics.heightPixels,
++                        View.MeasureSpec.AT_MOST));
++        mContentView.setPressed(false);
++        return mContentView.getMeasuredHeight();
++    }
++
++    public int measureContent(String text, int start, int end) {
++        if (mDragLocalState == null) {
++            mDragLocalState = new Editor.DragLocalState((TextView) mParent, start, end);
++            mDragLocalState.highlight = true;
++        } else {
++            mDragLocalState.start = start;
++            mDragLocalState.end = end;
++        }
++        return measureContent(text);
++    }
++
++    public void show(int x, int y) {
++        if (mContainer.isShowing()) {
++            mContainer.update(x, y, -1, -1);
++        } else {
++            mContainer.showAtLocation(mParent, Gravity.NO_GRAVITY, x, y);
++        }
++    }
++
++    public void hide() {
++        if (mDeferedHide) {
++            return;
++        }
++        if (mContainer.isShowing()) {
++            mContainer.dismiss();
++        }
++    }
++
++    private class BaseDragShadowBuilder extends View.DragShadowBuilder{
++        protected Context mContext;
++
++        public BaseDragShadowBuilder(View view){
++            super(view);
++        }
++
++        @Override
++        public void onProvideShadowMetrics(Point shadowSize,
++                                           Point shadowTouchPoint) {
++            final View view = getView();
++            if (view != null) {
++                shadowSize.set(view.getWidth(), view.getHeight());
++                shadowTouchPoint.set(shadowSize.x / 2, shadowSize.y / 2 + mTouchPointOffset);
++            } else {
++                Log.e(TAG, "Asked for drag thumb metrics but no view");
++            }
++        }
++    }
++
++    private void startDrag() {
++        ClipData cd = ClipData.newPlainText(null, mText.getText());
++        int arrowOffset = mContext.getResources().getDimensionPixelSize(
++                com.android.internal.R.dimen.drag_normal_arrow_point_offset);
++        if (mDragLocalState != null) {
++            mParent.getViewRootImpl().setLocalDragState(mDragLocalState);
++        }
++        mContentView.startDrag(cd, new BaseDragShadowBuilder(mContentView), null, View.DRAG_FLAG_GLOBAL, 0, 0 - (arrowOffset + mTouchPointOffset));
++        mDeferedHide = false;
++        hide();
++    }
++}
+\ No newline at end of file
+diff --git a/core/res/res/drawable-xxhdpi/smartisan_drag_text_popup_bg_normal.9.png b/core/res/res/drawable-xxhdpi/smartisan_drag_text_popup_bg_normal.9.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b459152f8b65539e3224dfc4891b802cbb41099
+GIT binary patch
+literal 13868
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/core/res/res/drawable-xxhdpi/smartisan_drag_text_popup_bg_pressed.9.png b/core/res/res/drawable-xxhdpi/smartisan_drag_text_popup_bg_pressed.9.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..a933de355260a9ccd4fa8763feaf21fb64a23fcd
+GIT binary patch
+literal 15011
+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
+NYM^VPgVjdF|1aV>pArB7
+
+literal 0
+HcmV?d00001
+
+diff --git a/core/res/res/drawable/smartisan_drag_text_popup_bg.xml b/core/res/res/drawable/smartisan_drag_text_popup_bg.xml
+new file mode 100644
+index 0000000..a22ffd0
+--- /dev/null
++++ b/core/res/res/drawable/smartisan_drag_text_popup_bg.xml
+@@ -0,0 +1,6 @@
++<?xml version="1.0" encoding="utf-8"?>
++
++<selector xmlns:android="http://schemas.android.com/apk/res/android">
++    <item android:state_pressed="true" android:drawable="@drawable/smartisan_drag_text_popup_bg_pressed" />
++    <item android:drawable="@drawable/smartisan_drag_text_popup_bg_normal" />
++</selector>
+diff --git a/core/res/res/layout/smartisan_drag_text_popup.xml b/core/res/res/layout/smartisan_drag_text_popup.xml
+new file mode 100644
+index 0000000..bb23c03
+--- /dev/null
++++ b/core/res/res/layout/smartisan_drag_text_popup.xml
+@@ -0,0 +1,26 @@
++<?xml version="1.0" encoding="utf-8"?>
++
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:layout_width="wrap_content"
++    android:layout_height="82dp"
++    android:gravity="center"
++    android:scaleX="1.16"
++    android:scaleY="1.16"
++    android:background="@drawable/smartisan_drag_text_popup_bg">
++
++    <TextView
++        android:id="@+id/drag_text_id"
++        android:layout_width="match_parent"
++        android:layout_height="match_parent"
++        android:paddingTop="0px"
++        android:paddingBottom="0px"
++        android:gravity="center"
++        android:maxWidth="97dp"
++        android:minWidth="41dp"
++        android:singleLine="true"
++        android:ellipsize="end"
++        android:fitsSystemWindows="false"
++        android:textColor="@color/white"
++        android:textSize="13.5sp" />
++
++</LinearLayout>
+diff --git a/core/res/res/values/smartisanos_dimens.xml b/core/res/res/values/smartisanos_dimens.xml
+index 0c24f10..8219f6e 100644
+--- a/core/res/res/values/smartisanos_dimens.xml
++++ b/core/res/res/values/smartisanos_dimens.xml
+@@ -1,6 +1,10 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ 
+ <resources>
++    <dimen name="drag_text_popup_vertival_offset">26dp</dimen>
++    <dimen name="drag_touch_point_offset">40dp</dimen>
++    <dimen name="drag_normal_arrow_point_offset">26dp</dimen>
++    <dimen name="drag_scale_margin">12dp</dimen>
+     <dimen name="sidebar_width">48dp</dimen>
+     <dimen name="drag_image_size">50dp</dimen>
+ 
+diff --git a/core/res/res/values/smartisanos_symbols.xml b/core/res/res/values/smartisanos_symbols.xml
+index 650309f..e549a7f 100644
+--- a/core/res/res/values/smartisanos_symbols.xml
++++ b/core/res/res/values/smartisanos_symbols.xml
+@@ -5,6 +5,15 @@
+ 
+   <java-symbol type="dimen" name="sidebar_width" />
+ 
++  <!-- TextView/Editor Symbol -->
++  <java-symbol type="layout" name="smartisan_drag_text_popup" />
++  <java-symbol type="id" name="drag_text_id" />
++  <java-symbol type="dimen" name="drag_text_popup_vertival_offset" />
++  <java-symbol type="dimen" name="drag_touch_point_offset" />
++  <java-symbol type="dimen" name="drag_normal_arrow_point_offset" />
++  <java-symbol type="dimen" name="drag_scale_margin" />
++  <!-- TextView/Editor Symbol -->
++
+   <java-symbol type="drawable" name="sidebar_background" />
+   <java-symbol type="dimen" name="drag_image_size"/>
+ 
+diff --git a/services/core/java/com/android/server/onestep/OneStepManagerService.java b/services/core/java/com/android/server/onestep/OneStepManagerService.java
+index e735f49..7cb56c0 100644
+--- a/services/core/java/com/android/server/onestep/OneStepManagerService.java
++++ b/services/core/java/com/android/server/onestep/OneStepManagerService.java
+@@ -1,4 +1,19 @@
+-
++/**
++ * Copyright (c) 2016, The Smartisan Open Source Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++ 
+ package com.android.server.onestep;
+ 
+ import android.content.ComponentName;
+@@ -51,6 +66,7 @@ public class OneStepManagerService extends IOneStepManager.Stub {
+         mThumbModeHelper.setThumbEventsListener(new OnThumbEventsCallbacks() {
+             @Override
+             public void onEnterSidebarMode(final int state) {
++                Slog.d(TAG, "onEnterSidebarMode" + state);
+                 if ((state & ViewRootImpl.BIT_WINDOW_IN_THUMB_MODE_TYPE_L_CORNER_SIDEBAR) != 0) {
+                     mSideBarMode = OneStepManager.BIT_SIDEBAR_IN_RIGHT_TOP_MODE;
+                 } else if ((state & ViewRootImpl.BIT_WINDOW_IN_THUMB_MODE_TYPE_R_CORNER_SIDEBAR) != 0) {
+@@ -65,6 +81,7 @@ public class OneStepManagerService extends IOneStepManager.Stub {
+ 
+             @Override
+             public void onExitSidebarMode() {
++                Slog.d(TAG, "onExitSidebarMode" + mSideBarMode);
+                 mSideBarMode = OneStepManager.BIT_SIDEBAR_IN_NONE_MODE;
+                 if (mStateCallbacks != null) {
+                     mStateCallbacks.notifyExitState();
+@@ -98,6 +115,7 @@ public class OneStepManagerService extends IOneStepManager.Stub {
+ 
+     @Override
+     public boolean isInOneStepMode() {
++        Slog.w(TAG, "isInOneStepMode: " + mSideBarMode);
+         return mSideBarMode != OneStepManager.BIT_SIDEBAR_IN_NONE_MODE;
+     }
+ 
+-- 
+2.6.6
+

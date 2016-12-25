@@ -1,0 +1,28 @@
+From 776e46a5a764f99a5eab95ea5680f9cf98b20caa Mon Sep 17 00:00:00 2001
+From: zhangji <zhangji@smartisan.com>
+Date: Fri, 16 Dec 2016 16:45:50 +0800
+Subject: [PATCH 2/2] OneStep: the sidebar type should be trusted.
+
+ticket: 147892
+
+Change-Id: Ie0d73e33914964c5fb5f8911cb77cb6c050ef41f
+Signed-off-by: zhangji <zhangji@smartisan.com>
+---
+ services/inputflinger/InputWindow.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/services/inputflinger/InputWindow.cpp b/services/inputflinger/InputWindow.cpp
+index 5b028f2..1653ccc 100644
+--- a/services/inputflinger/InputWindow.cpp
++++ b/services/inputflinger/InputWindow.cpp
+@@ -49,6 +49,7 @@ bool InputWindowInfo::isTrustedOverlay() const {
+             || layoutParamsType == TYPE_MAGNIFICATION_OVERLAY
+             || layoutParamsType == TYPE_STATUS_BAR
+             || layoutParamsType == TYPE_NAVIGATION_BAR
++            || layoutParamsType == TYPE_SIDEBAR_TOOLS
+             || layoutParamsType == TYPE_SECURE_SYSTEM_OVERLAY;
+ }
+ 
+-- 
+2.6.6
+

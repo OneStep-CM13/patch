@@ -1,0 +1,440 @@
+From 4a1fdbf2121d1f92cc9380e913aadafac090ee08 Mon Sep 17 00:00:00 2001
+From: zhangji <zhangji@smartisan.com>
+Date: Tue, 13 Dec 2016 20:29:51 +0800
+Subject: [PATCH 1/2] OneStep: Base impl.
+
+rootcause: the input event issue.
+
+Signed-off-by: zhangji <zhangji@smartisan.com>
+---
+ include/input/Input.h                     | 27 +++++++++
+ include/input/InputTransport.h            |  6 +-
+ libs/input/Input.cpp                      | 91 ++++++++++++++++++++++++++++++-
+ libs/input/InputTransport.cpp             | 14 +++--
+ services/inputflinger/InputDispatcher.cpp | 34 ++++++++----
+ services/inputflinger/InputDispatcher.h   |  7 +++
+ services/inputflinger/InputWindow.cpp     |  3 +
+ services/inputflinger/InputWindow.h       |  2 +
+ 8 files changed, 167 insertions(+), 17 deletions(-)
+
+diff --git a/include/input/Input.h b/include/input/Input.h
+index 82fc659..7f34d09 100644
+--- a/include/input/Input.h
++++ b/include/input/Input.h
+@@ -551,6 +551,10 @@ public:
+                 AMOTION_EVENT_AXIS_ORIENTATION, pointerIndex, historicalIndex);
+     }
+ 
++    inline bool getThumbMode() const { return mInThumbMode; }
++
++    inline float getScaleFactor() const { return mScaleFactor; }
++
+     ssize_t findPointerIndex(int32_t pointerId) const;
+ 
+     void initialize(
+@@ -572,6 +576,27 @@ public:
+             const PointerProperties* pointerProperties,
+             const PointerCoords* pointerCoords);
+ 
++    void initialize(
++            int32_t deviceId,
++            int32_t source,
++            int32_t action,
++            int32_t actionButton,
++            int32_t flags,
++            int32_t edgeFlags,
++            int32_t metaState,
++            int32_t buttonState,
++            float xOffset,
++            float yOffset,
++            float xPrecision,
++            float yPrecision,
++            nsecs_t downTime,
++            nsecs_t eventTime,
++            size_t pointerCount,
++            const PointerProperties* pointerProperties,
++            const PointerCoords* pointerCoords,
++            bool inThumbMode,
++            float scaleFactor);
++
+     void copyFrom(const MotionEvent* other, bool keepHistory);
+ 
+     void addSample(
+@@ -623,6 +648,8 @@ protected:
+     Vector<PointerProperties> mPointerProperties;
+     Vector<nsecs_t> mSampleEventTimes;
+     Vector<PointerCoords> mSamplePointerCoords;
++    bool mInThumbMode;
++    float mScaleFactor;
+ };
+ 
+ /*
+diff --git a/include/input/InputTransport.h b/include/input/InputTransport.h
+index f31bcea..ff53033 100644
+--- a/include/input/InputTransport.h
++++ b/include/input/InputTransport.h
+@@ -95,6 +95,8 @@ struct InputMessage {
+             float xPrecision;
+             float yPrecision;
+             uint32_t pointerCount;
++            bool inThumbMode;
++            float scaleFactor;
+             // Note that PointerCoords requires 8 byte alignment.
+             struct Pointer {
+                 PointerProperties properties;
+@@ -246,7 +248,9 @@ public:
+             nsecs_t eventTime,
+             uint32_t pointerCount,
+             const PointerProperties* pointerProperties,
+-            const PointerCoords* pointerCoords);
++            const PointerCoords* pointerCoords,
++            bool inThumbMode,
++            float scaleFactor);
+ 
+     /* Receives the finished signal from the consumer in reply to the original dispatch signal.
+      * If a signal was received, returns the message sequence number,
+diff --git a/libs/input/Input.cpp b/libs/input/Input.cpp
+index b64cb2c..eea7ab1 100644
+--- a/libs/input/Input.cpp
++++ b/libs/input/Input.cpp
+@@ -247,6 +247,49 @@ void MotionEvent::initialize(
+     mSampleEventTimes.clear();
+     mSamplePointerCoords.clear();
+     addSample(eventTime, pointerCoords);
++    mInThumbMode = false;
++    mScaleFactor = 1;
++}
++
++void MotionEvent::initialize(
++        int32_t deviceId,
++        int32_t source,
++        int32_t action,
++        int32_t actionButton,
++        int32_t flags,
++        int32_t edgeFlags,
++        int32_t metaState,
++        int32_t buttonState,
++        float xOffset,
++        float yOffset,
++        float xPrecision,
++        float yPrecision,
++        nsecs_t downTime,
++        nsecs_t eventTime,
++        size_t pointerCount,
++        const PointerProperties* pointerProperties,
++        const PointerCoords* pointerCoords,
++        bool inThumbMode,
++        float scaleFactor) {
++    InputEvent::initialize(deviceId, source);
++    mAction = action;
++    mActionButton = actionButton;
++    mFlags = flags;
++    mEdgeFlags = edgeFlags;
++    mMetaState = metaState;
++    mButtonState = buttonState;
++    mXOffset = xOffset;
++    mYOffset = yOffset;
++    mXPrecision = xPrecision;
++    mYPrecision = yPrecision;
++    mDownTime = downTime;
++    mPointerProperties.clear();
++    mPointerProperties.appendArray(pointerProperties, pointerCount);
++    mSampleEventTimes.clear();
++    mSamplePointerCoords.clear();
++    addSample(eventTime, pointerCoords);
++    mInThumbMode = inThumbMode;
++    mScaleFactor = scaleFactor;
+ }
+ 
+ void MotionEvent::copyFrom(const MotionEvent* other, bool keepHistory) {
+@@ -263,6 +306,8 @@ void MotionEvent::copyFrom(const MotionEvent* other, bool keepHistory) {
+     mYPrecision = other->mYPrecision;
+     mDownTime = other->mDownTime;
+     mPointerProperties = other->mPointerProperties;
++    mInThumbMode = other->mInThumbMode;
++    mScaleFactor= other->mScaleFactor;
+ 
+     if (keepHistory) {
+         mSampleEventTimes = other->mSampleEventTimes;
+@@ -290,7 +335,26 @@ const PointerCoords* MotionEvent::getRawPointerCoords(size_t pointerIndex) const
+ }
+ 
+ float MotionEvent::getRawAxisValue(int32_t axis, size_t pointerIndex) const {
+-    return getRawPointerCoords(pointerIndex)->getAxisValue(axis);
++    float value = getRawPointerCoords(pointerIndex)->getAxisValue(axis);
++	if(mInThumbMode==false || mScaleFactor==0){
++        return value;
++	}
++    switch (axis) {
++    case AMOTION_EVENT_AXIS_X:
++        if(value <= (-mXOffset)){
++            return value/mScaleFactor;
++        }else{
++            return (-mXOffset)/mScaleFactor + (value+mXOffset);
++        }
++    case AMOTION_EVENT_AXIS_Y:
++        if(value <= (-mYOffset)){
++            return value/mScaleFactor;
++        }else{
++            return (-mYOffset)/mScaleFactor+ (value+mYOffset);
++        }
++    }
++    return value;
++
+ }
+ 
+ float MotionEvent::getAxisValue(int32_t axis, size_t pointerIndex) const {
+@@ -311,7 +375,26 @@ const PointerCoords* MotionEvent::getHistoricalRawPointerCoords(
+ 
+ float MotionEvent::getHistoricalRawAxisValue(int32_t axis, size_t pointerIndex,
+         size_t historicalIndex) const {
+-    return getHistoricalRawPointerCoords(pointerIndex, historicalIndex)->getAxisValue(axis);
++    float value = getHistoricalRawPointerCoords(pointerIndex, historicalIndex)->getAxisValue(axis);
++	if(mInThumbMode==false || mScaleFactor==0){
++        return value;
++	}
++
++    switch (axis) {
++    case AMOTION_EVENT_AXIS_X:
++        if(value <= (-mXOffset)){
++            return value/mScaleFactor;
++        }else{
++            return (-mXOffset)/mScaleFactor + (value+mXOffset);
++        }
++    case AMOTION_EVENT_AXIS_Y:
++        if(value <= (-mYOffset)){
++            return value/mScaleFactor;
++        }else{
++            return (-mYOffset)/mScaleFactor + (value+mYOffset);
++        }
++    }
++    return value;
+ }
+ 
+ float MotionEvent::getHistoricalAxisValue(int32_t axis, size_t pointerIndex,
+@@ -442,6 +525,8 @@ status_t MotionEvent::readFromParcel(Parcel* parcel) {
+     mXPrecision = parcel->readFloat();
+     mYPrecision = parcel->readFloat();
+     mDownTime = parcel->readInt64();
++    mInThumbMode = (parcel->readInt32() != 0) ? true:false;
++    mScaleFactor = parcel->readFloat();
+ 
+     mPointerProperties.clear();
+     mPointerProperties.setCapacity(pointerCount);
+@@ -490,6 +575,8 @@ status_t MotionEvent::writeToParcel(Parcel* parcel) const {
+     parcel->writeFloat(mXPrecision);
+     parcel->writeFloat(mYPrecision);
+     parcel->writeInt64(mDownTime);
++    parcel->writeInt32(mInThumbMode ? 1:0);
++    parcel->writeFloat(mScaleFactor);
+ 
+     for (size_t i = 0; i < pointerCount; i++) {
+         const PointerProperties& properties = mPointerProperties.itemAt(i);
+diff --git a/libs/input/InputTransport.cpp b/libs/input/InputTransport.cpp
+index 7f83da5..25cd96a 100644
+--- a/libs/input/InputTransport.cpp
++++ b/libs/input/InputTransport.cpp
+@@ -300,16 +300,18 @@ status_t InputPublisher::publishMotionEvent(
+         nsecs_t eventTime,
+         uint32_t pointerCount,
+         const PointerProperties* pointerProperties,
+-        const PointerCoords* pointerCoords) {
++        const PointerCoords* pointerCoords,
++        bool inThumbMode,
++        float scaleFactor) {
+ #if DEBUG_TRANSPORT_ACTIONS
+     ALOGD("channel '%s' publisher ~ publishMotionEvent: seq=%u, deviceId=%d, source=0x%x, "
+             "action=0x%x, actionButton=0x%08x, flags=0x%x, edgeFlags=0x%x, "
+-            "metaState=0x%x, buttonState=0x%x, xOffset=%f, yOffset=%f, "
++            "metaState=0x%x, buttonState=0x%x, xOffset=%f, yOffset=%f, scaleFactor=%f, inThumbMode=%s, "
+             "xPrecision=%f, yPrecision=%f, downTime=%lld, eventTime=%lld, "
+             "pointerCount=%" PRIu32,
+             mChannel->getName().string(), seq,
+             deviceId, source, action, actionButton, flags, edgeFlags, metaState, buttonState,
+-            xOffset, yOffset, xPrecision, yPrecision, downTime, eventTime, pointerCount);
++            xOffset, yOffset, scaleFactor, toString(inThumbMode), xPrecision, yPrecision, downTime, eventTime, pointerCount);
+ #endif
+ 
+     if (!seq) {
+@@ -341,6 +343,8 @@ status_t InputPublisher::publishMotionEvent(
+     msg.body.motion.downTime = downTime;
+     msg.body.motion.eventTime = eventTime;
+     msg.body.motion.pointerCount = pointerCount;
++    msg.body.motion.inThumbMode = inThumbMode;
++    msg.body.motion.scaleFactor = scaleFactor;
+     for (uint32_t i = 0; i < pointerCount; i++) {
+         msg.body.motion.pointers[i].properties.copyFrom(pointerProperties[i]);
+         msg.body.motion.pointers[i].coords.copyFrom(pointerCoords[i]);
+@@ -931,7 +935,9 @@ void InputConsumer::initializeMotionEvent(MotionEvent* event, const InputMessage
+             msg->body.motion.eventTime,
+             pointerCount,
+             pointerProperties,
+-            pointerCoords);
++            pointerCoords,
++            msg->body.motion.inThumbMode,
++            msg->body.motion.scaleFactor);
+ }
+ 
+ void InputConsumer::addSample(MotionEvent* event, const InputMessage* msg) {
+diff --git a/services/inputflinger/InputDispatcher.cpp b/services/inputflinger/InputDispatcher.cpp
+index c9e876f..9cb489e 100644
+--- a/services/inputflinger/InputDispatcher.cpp
++++ b/services/inputflinger/InputDispatcher.cpp
+@@ -1579,6 +1579,7 @@ void InputDispatcher::addWindowTargetLocked(const sp<InputWindowHandle>& windowH
+     target.yOffset = - windowInfo->frameTop;
+     target.scaleFactor = windowInfo->scaleFactor;
+     target.pointerIds = pointerIds;
++    target.inThumbMode = windowInfo->inThumbMode;
+ }
+ 
+ void InputDispatcher::addMonitoringTargetsLocked(Vector<InputTarget>& inputTargets) {
+@@ -1881,7 +1882,7 @@ void InputDispatcher::enqueueDispatchEntryLocked(
+     // Enqueue a new dispatch entry onto the outbound queue for this connection.
+     DispatchEntry* dispatchEntry = new DispatchEntry(eventEntry, // increments ref
+             inputTargetFlags, inputTarget->xOffset, inputTarget->yOffset,
+-            inputTarget->scaleFactor);
++            inputTarget->scaleFactor, inputTarget->inThumbMode);
+ 
+     // Apply target flags and update the connection's input state.
+     switch (eventEntry->type) {
+@@ -2030,7 +2031,7 @@ void InputDispatcher::startDispatchCycleLocked(nsecs_t currentTime,
+                     xOffset, yOffset, motionEntry->xPrecision, motionEntry->yPrecision,
+                     motionEntry->downTime, motionEntry->eventTime,
+                     motionEntry->pointerCount, motionEntry->pointerProperties,
+-                    usingCoords);
++                    usingCoords, dispatchEntry->inThumbMode, scaleFactor);
+             break;
+         }
+ 
+@@ -3067,8 +3068,9 @@ bool InputDispatcher::transferTouchFocus(const sp<InputChannel>& fromChannel,
+                 if (touchedWindow.windowHandle == fromWindowHandle) {
+                     int32_t oldTargetFlags = touchedWindow.targetFlags;
+                     BitSet32 pointerIds = touchedWindow.pointerIds;
+-
+-                    state.windows.removeAt(i);
++                    if(fromWindowHandle->getInfo()->name.find(String8("com.android.calendar.AllInOneActivity"))<= 0){
++                        state.windows.removeAt(i);
++                    }
+ 
+                     int32_t newTargetFlags = oldTargetFlags
+                             & (InputTarget::FLAG_FOREGROUND
+@@ -3096,9 +3098,11 @@ Found:
+             sp<Connection> toConnection = mConnectionsByFd.valueAt(toConnectionIndex);
+ 
+             fromConnection->inputState.copyPointerStateTo(toConnection->inputState);
+-            CancelationOptions options(CancelationOptions::CANCEL_POINTER_EVENTS,
+-                    "transferring touch focus from this window to another window");
+-            synthesizeCancelationEventsForConnectionLocked(fromConnection, options);
++            if(fromWindowHandle->getInfo()->name.find(String8("com.android.calendar.AllInOneActivity"))<= 0){
++               CancelationOptions options(CancelationOptions::CANCEL_POINTER_EVENTS,
++                       "transferring touch focus from this window to another window");
++               synthesizeCancelationEventsForConnectionLocked(fromConnection, options);
++            }
+         }
+ 
+ #if DEBUG_FOCUS
+@@ -3193,7 +3197,7 @@ void InputDispatcher::dumpDispatchStateLocked(String8& dump) {
+             dump.appendFormat(INDENT2 "%zu: name='%s', displayId=%d, "
+                     "paused=%s, hasFocus=%s, hasWallpaper=%s, "
+                     "visible=%s, canReceiveKeys=%s, flags=0x%08x, type=0x%08x, layer=%d, "
+-                    "frame=[%d,%d][%d,%d], scale=%f, "
++                    "frame=[%d,%d][%d,%d], scale=%f, inThumbMode=%s,"
+                     "touchableRegion=",
+                     i, windowInfo->name.string(), windowInfo->displayId,
+                     toString(windowInfo->paused),
+@@ -3205,7 +3209,8 @@ void InputDispatcher::dumpDispatchStateLocked(String8& dump) {
+                     windowInfo->layer,
+                     windowInfo->frameLeft, windowInfo->frameTop,
+                     windowInfo->frameRight, windowInfo->frameBottom,
+-                    windowInfo->scaleFactor);
++                    windowInfo->scaleFactor,
++                    toString(windowInfo->inThumbMode));
+             dumpRegion(dump, windowInfo->touchableRegion);
+             dump.appendFormat(", inputFeatures=0x%08x", windowInfo->inputFeatures);
+             dump.appendFormat(", ownerPid=%d, ownerUid=%d, dispatchingTimeout=%0.3fms\n",
+@@ -4011,7 +4016,16 @@ InputDispatcher::DispatchEntry::DispatchEntry(EventEntry* eventEntry,
+         int32_t targetFlags, float xOffset, float yOffset, float scaleFactor) :
+         seq(nextSeq()),
+         eventEntry(eventEntry), targetFlags(targetFlags),
+-        xOffset(xOffset), yOffset(yOffset), scaleFactor(scaleFactor),
++        xOffset(xOffset), yOffset(yOffset), scaleFactor(scaleFactor),inThumbMode(false),
++        deliveryTime(0), resolvedAction(0), resolvedFlags(0) {
++    eventEntry->refCount += 1;
++}
++
++InputDispatcher::DispatchEntry::DispatchEntry(EventEntry* eventEntry,
++        int32_t targetFlags, float xOffset, float yOffset, float scaleFactor, bool inThumbMode) :
++        seq(nextSeq()),
++        eventEntry(eventEntry), targetFlags(targetFlags),
++        xOffset(xOffset), yOffset(yOffset), scaleFactor(scaleFactor),inThumbMode(inThumbMode),
+         deliveryTime(0), resolvedAction(0), resolvedFlags(0) {
+     eventEntry->refCount += 1;
+ }
+diff --git a/services/inputflinger/InputDispatcher.h b/services/inputflinger/InputDispatcher.h
+index 1c054f5..47afcf5 100644
+--- a/services/inputflinger/InputDispatcher.h
++++ b/services/inputflinger/InputDispatcher.h
+@@ -161,6 +161,8 @@ struct InputTarget {
+     // (ignored for KeyEvents)
+     float scaleFactor;
+ 
++    bool inThumbMode;
++
+     // The subset of pointer ids to include in motion events dispatched to this input target
+     // if FLAG_SPLIT is set.
+     BitSet32 pointerIds;
+@@ -548,12 +550,17 @@ private:
+         float scaleFactor;
+         nsecs_t deliveryTime; // time when the event was actually delivered
+ 
++        bool inThumbMode;
++
+         // Set to the resolved action and flags when the event is enqueued.
+         int32_t resolvedAction;
+         int32_t resolvedFlags;
+ 
+         DispatchEntry(EventEntry* eventEntry,
+                 int32_t targetFlags, float xOffset, float yOffset, float scaleFactor);
++
++        DispatchEntry(EventEntry* eventEntry,
++                int32_t targetFlags, float xOffset, float yOffset, float scaleFactor, bool inThumbMode);
+         ~DispatchEntry();
+ 
+         inline bool hasForegroundTarget() const {
+diff --git a/services/inputflinger/InputWindow.cpp b/services/inputflinger/InputWindow.cpp
+index 1b913c5..5b028f2 100644
+--- a/services/inputflinger/InputWindow.cpp
++++ b/services/inputflinger/InputWindow.cpp
+@@ -36,6 +36,9 @@ bool InputWindowInfo::touchableRegionContainsPoint(int32_t x, int32_t y) const {
+ }
+ 
+ bool InputWindowInfo::frameContainsPoint(int32_t x, int32_t y) const {
++    if(layoutParamsType == TYPE_SIDEBAR_TOOLS){
++        return touchableRegion.contains(x,y);
++    }
+     return x >= frameLeft && x < frameRight
+             && y >= frameTop && y < frameBottom;
+ }
+diff --git a/services/inputflinger/InputWindow.h b/services/inputflinger/InputWindow.h
+index 0ac7fce..964f22a 100644
+--- a/services/inputflinger/InputWindow.h
++++ b/services/inputflinger/InputWindow.h
+@@ -102,6 +102,7 @@ struct InputWindowInfo {
+         TYPE_VOLUME_OVERLAY = FIRST_SYSTEM_WINDOW+20,
+         TYPE_BOOT_PROGRESS = FIRST_SYSTEM_WINDOW+21,
+         TYPE_MAGNIFICATION_OVERLAY = FIRST_SYSTEM_WINDOW+22,
++        TYPE_SIDEBAR_TOOLS = FIRST_SYSTEM_WINDOW+34,
+         LAST_SYSTEM_WINDOW      = 2999,
+     };
+ 
+@@ -132,6 +133,7 @@ struct InputWindowInfo {
+     int32_t ownerUid;
+     int32_t inputFeatures;
+     int32_t displayId;
++    bool inThumbMode;
+ 
+     void addTouchableRegion(const Rect& region);
+ 
+-- 
+2.6.6
+
