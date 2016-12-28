@@ -1,0 +1,75 @@
+From 5b3369f5d316a7dd32fdb75dd0536e9f08841e48 Mon Sep 17 00:00:00 2001
+From: totopamimi <totopamimi@gmail.com>
+Date: Wed, 28 Dec 2016 16:08:06 +0800
+Subject: [PATCH] wms: fix RecentView
+
+Signed-off-by: totopamimi <totopamimi@gmail.com>
+---
+ .../java/com/android/server/wm/WindowManagerService.java | 16 ----------------
+ 1 file changed, 16 deletions(-)
+
+diff --git a/services/core/java/com/android/server/wm/WindowManagerService.java b/services/core/java/com/android/server/wm/WindowManagerService.java
+index 462f528..59cf20b 100644
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -6270,7 +6270,6 @@ public class WindowManagerService extends IWindowManager.Stub
+         Bitmap bm = null;
+ 
+         int maxLayer = 0;
+-        int statusBarHeight = 0;
+         final Rect frame = new Rect();
+         final Rect stackBounds = new Rect();
+ 
+@@ -6298,8 +6297,6 @@ public class WindowManagerService extends IWindowManager.Stub
+         final int aboveAppLayer = (mPolicy.windowTypeToLayerLw(TYPE_APPLICATION) + 1)
+                 * TYPE_LAYER_MULTIPLIER + TYPE_LAYER_OFFSET;
+ 
+-        boolean isFullScreen = false;
+-
+         while (true) {
+             if (retryCount++ > 0) {
+                 // Reset max/min layers on retries so we don't accidentally take a screenshot of a
+@@ -6374,11 +6371,6 @@ public class WindowManagerService extends IWindowManager.Stub
+                         }
+                     }
+ 
+-                    if ((ws.mAttrs.flags & WindowManager.LayoutParams.FLAG_FULLSCREEN) != 0 ||
+-                            (ws.mSystemUiVisibility & View.SYSTEM_UI_FLAG_FULLSCREEN) != 0) {
+-                        isFullScreen = true;
+-                    }
+-
+                     if (ws.mAppToken != null && ws.mAppToken.token == appToken &&
+                             ws.isDisplayedLw() && winAnim.mSurfaceShown) {
+                         screenshotReady = true;
+@@ -6410,11 +6402,6 @@ public class WindowManagerService extends IWindowManager.Stub
+                     continue;
+                 }
+ 
+-                if (!isFullScreen) {
+-                    statusBarHeight =
+-                            mContext.getResources().getDimensionPixelSize(com.android.internal.R.dimen.status_bar_height);
+-                }
+-
+                 // Screenshot is ready to be taken. Everything from here below will continue
+                 // through the bottom of the loop and return a value. We only stay in the loop
+                 // because we don't want to release the mWindowMap lock until the screenshot is
+@@ -6446,7 +6433,6 @@ public class WindowManagerService extends IWindowManager.Stub
+                     height = frame.height();
+                 }
+ 
+-                /*
+                 // Tell surface flinger what part of the image to crop. Take the top
+                 // right part of the application, and crop the larger dimension to fit.
+                 Rect crop = new Rect(frame);
+@@ -6457,8 +6443,6 @@ public class WindowManagerService extends IWindowManager.Stub
+                     int cropHeight = (int)((float)height / (float)width * frame.width());
+                     crop.bottom = crop.top + cropHeight;
+                 }
+-                */
+-                Rect crop = ThumbModeHelper.getInstance().getAppScreenRect(dw, dh, statusBarHeight);
+ 
+                 // The screenshot API does not apply the current screen rotation.
+                 int rot = getDefaultDisplayContentLocked().getDisplay().getRotation();
+-- 
+2.6.6
+
