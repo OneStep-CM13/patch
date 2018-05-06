@@ -1,16 +1,16 @@
 ### 把PATCH打到自己的CM13分支
 
-此PATCH适合场景：本地的CM13分支不是最新的并且你对git patch有了解，如果不是，可以直接同步已经基于最新CM13分支打过PATCH的仓库 [传送门](https://gitlab.com/OneStep-CM13/android)
+此PATCH适合场景：本地的CM13分支不是最新的并且你对git patch有了解，如果不是，可以直接同步已经基于最新CM13分支打过PATCH的仓库 [传送门](https://github.com/OneStep-CM13/android)
 
 OneStep新增两个本地没有的仓库，故需要先下载：
 ```sh
-    $ git clone https://gitlab.com/OneStep-CM13/android_frameworks_smartisanos-base.git /the/path/of/your/cm13_root_dir/frameworks/smartisanos-base
-    $ git clone https://gitlab.com/OneStep-CM13/android_packages_apps_OneStep.git /the/path/of/your/cm13_root_dir/packages/apps/OneStep
+    $ git clone https://github.com/OneStep-CM13/android_frameworks_smartisanos-base.git /the/path/of/your/cm13_root_dir/frameworks/smartisanos-base
+    $ git clone https://github.com/OneStep-CM13/android_packages_apps_OneStep.git /the/path/of/your/cm13_root_dir/packages/apps/OneStep
 ```
 
 下载此仓库所有PATCH：
 ```sh
-    $ git clone https://gitlab.com/OneStep-CM13/patch.git ~/patch
+    $ git clone https://github.com/OneStep-CM13/patch.git ~/patch
 ```
 
 以打frameworks_base为例：
